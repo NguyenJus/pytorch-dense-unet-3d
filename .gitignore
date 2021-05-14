@@ -1,0 +1,12 @@
+__pycache__/
+.mypy_cache
+
+
+# Virtual environment
+venv*/
+
+# Datasets
+data/*
+
+# Saved models
+models/*

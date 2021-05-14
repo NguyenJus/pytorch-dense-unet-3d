@@ -1,0 +1,48 @@
+---
+pathing:
+  run_name: example_run
+  model_save_dir: ./models/
+  results_save_dir: ./results/
+  train_img_dirs: 
+    - ./data/Training_Batch1/media/nas/01_Datasets/CT/LITS/Training Batch 1/
+    - ./data/Training_Batch2/media/nas/01_Datasets/CT/LITS/Training Batch 2/
+  test_img_dirs:
+    - null
+
+dataset:
+  batch_size: 3
+  resize_img: True
+  resize_dims:
+    D: 12
+    H: 224
+    W: 224
+  clamp_hu: True
+  clamp_hu_range:
+    min: -200
+    max: 250
+  random_hflip: True
+  random_hflip_probability: 0.5
+  scale_img: True
+  scale_img_range:
+    min: 0.8
+    max: 1.2
+  shuffle: True
+
+training:
+  optimizer: SGD
+  learning_rate: 0.01
+  epochs: 50
+  momentum: 0.5
+  use_scheduler: True
+  scheduler: StepLR
+  scheduler_step: 10
+  scheduler_gamma: 0.5
+  criterion: CrossEntropyLoss
+  class_weights:
+    background: 0.2
+    liver: 1.2
+    lesion: 2.2
+
+gpu:
+  use_gpu: True
+  gpu_name: cuda:0

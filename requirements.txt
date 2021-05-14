@@ -1,0 +1,10 @@
+numpy==1.19.4
+torch==1.7.0
+torchvision==0.9.1
+torchaudio==0.7.0
+matplotlib
+tqdm
+pandas
+nibabel==3.2.1
+pyYAML==5.4.1
+black
