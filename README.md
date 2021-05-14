@@ -30,4 +30,4 @@ Top 3 rows are 12 equidistant ground truth segmentations of a single scan. Botto
 Our model and methods need much more work and training to reach the results that are presented in the paper. We are not currently actively developing this model.
 
 # Acknowledgement
-This work has been done by [nguyenjus](https://github.com/NguyenJus) and Tongxi Wang. This work was completed in part using the Discovery cluster, supported by Northeastern University’s Research Computing team.
+This work has been done by [nguyenjus](https://github.com/NguyenJus) and [wang1784](https://github.com/wang1784). This work was completed in part using the Discovery cluster, supported by Northeastern University’s Research Computing team.
