@@ -28,9 +28,8 @@ jobs:
       - name: Install package with CPU torch
         run: |
           uv pip install --system \
-            torch --index-url https://download.pytorch.org/whl/cpu
-          uv pip install --system -e ".[dev]" --no-deps
-          uv pip install --system -e "."
+            torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          uv pip install --system -e ".[dev]"
 
       - name: ruff check
         run: ruff check .

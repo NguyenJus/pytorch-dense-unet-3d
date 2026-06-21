@@ -20,6 +20,15 @@ dependencies = [
     "matplotlib>=3.7",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "pytest>=8.0",
+    "types-PyYAML",
+    "types-tqdm",
+]
+
 [project.scripts]
 "dense-unet-3d" = "dense_unet_3d.cli:main"
 
