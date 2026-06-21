@@ -89,9 +89,7 @@ def evaluate(
             for c in range(NUM_CLASSES):
                 for i in range(n):
                     # per-case scalar (applies empty-class convention internally)
-                    pc_sum[c] += _binary_dice(
-                        pred_masks[i, c].float(), gt_masks[i, c].float()
-                    )
+                    pc_sum[c] += _binary_dice(pred_masks[i, c].float(), gt_masks[i, c].float())
                 # global counts accumulated across all voxels/volumes
                 pred_c = pred_masks[:, c].float()
                 gt_c = gt_masks[:, c].float()

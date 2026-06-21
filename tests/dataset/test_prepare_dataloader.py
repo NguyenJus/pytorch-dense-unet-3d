@@ -74,9 +74,7 @@ class TestValLoaderDeterministic:
         _write_nifti(tmp_path / "segmentation0.nii", seg)
 
         loader = prepare_dataloader(_config(str(tmp_path)), train=False)
-        assert isinstance(loader.sampler, SequentialSampler), (
-            "val loader must not shuffle"
-        )
+        assert isinstance(loader.sampler, SequentialSampler), "val loader must not shuffle"
 
     def test_train_loader_shuffles(self, tmp_path: Path) -> None:
         """train=True loader honours config shuffle=True (RandomSampler)."""
