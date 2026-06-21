@@ -1,30 +1,21 @@
-import yaml
-import torch
+"""Legacy entry point — thin wrapper around the console CLI.
 
-from dense_unet_3d.dataset.prepare_dataset import prepare_dataloader
-from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
-from dense_unet_3d.training.train import train
-from dense_unet_3d.evaluation.evaluate import evaluate
+The original ``cp <main.py>; python main.py`` workflow and the
+hardcoded config path have been removed.
 
+Use the ``dense-unet-3d`` console script instead::
 
-def main():
-    with open("./dense_unet_3d/config.yaml", "r") as infile:
-        config = yaml.load(infile, Loader=yaml.FullLoader)
+    dense-unet-3d train  --config <path/to/config.yaml>
+    dense-unet-3d eval   --config <path/to/config.yaml> --checkpoint <ckpt.pt>
+    dense-unet-3d predict --config <path/to/config.yaml> --checkpoint <ckpt.pt> \\
+                          --input <vol.nii.gz> --output <seg.nii.gz>
 
-    if torch.cuda.is_available() and config["gpu"]["use_gpu"]:
-        device = torch.device(config["gpu"]["gpu_name"])
-    else:
-        device = torch.device("cpu")
+This file is retained only for backwards compatibility with any script that
+does ``python -m dense_unet_3d.main``.  It delegates to ``cli.main()``
+immediately.
+"""
 
-    trainloader = prepare_dataloader(config, train=True)
-
-    model = DenseUNet3d()
-
-    losses = train(config, model, device, trainloader)
-
-    scores = evaluate(model, device, trainloader)
-    print(scores)
-
+from dense_unet_3d.cli import main
 
 if __name__ == "__main__":
     main()

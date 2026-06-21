@@ -1,12 +1,23 @@
 __pycache__/
 .mypy_cache
+.ruff_cache/
+.pytest_cache/
 
+# Packaging / build artifacts
+*.egg-info/
+build/
+dist/
 
 # Virtual environment
 venv*/
+.venv/
 
 # Datasets
 data/*
 
 # Saved models
 models/*
+*.pt
+
+# Brainstorm/spec scaffolding (durable findings live in docs/research/)
+docs/superpowers/

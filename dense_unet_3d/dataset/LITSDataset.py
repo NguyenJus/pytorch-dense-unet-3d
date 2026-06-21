@@ -1,43 +1,60 @@
+"""LiTS Dataset: loads NIfTI volume+segmentation pairs via nibabel.
+
+Labels: 0 = background, 1 = liver, 2 = tumour/lesion (as in the paper).
+"""
+
+from __future__ import annotations
+
 import glob
 import os
-from typing import List, Tuple, Optional, Any
+from typing import Any, cast
 
 import nibabel as nib
 import numpy as np
 import torch
+from nibabel.spatialimages import SpatialImage
 from torch.utils.data import Dataset
 
 
 class LITSDataset(Dataset):
-    """
-    Class for LiTS Dataset
+    """PyTorch Dataset for the Liver Tumour Segmentation (LiTS) challenge.
+
+    Each item is a ``(image, mask)`` pair where:
+    - ``image`` is a float32 tensor of shape ``(1, D, H, W)`` (channel-first).
+    - ``mask`` is a long (int64) tensor with integer labels in {0, 1, 2}.
+
+    Parameters
+    ----------
+    img_dirs:
+        Directories to scan for ``volume*.nii`` and ``segmentation*.nii`` files.
+    detect_tumors:
+        When *True* (default) labels 0/1/2 are preserved.  When *False*,
+        label 2 is collapsed to 1 (phase-1 liver-only training).
+    crop_to_liver:
+        When *True*, depth slices that contain no liver/tumour voxels are
+        removed before transforms are applied.
+    transform:
+        Optional callable applied to the **image** numpy array after the
+        (H, W, D) → (D, H, W) transpose, before tensor conversion.
+    paired_transform:
+        Optional callable applied to ``(image_tensor, mask_tensor)`` pairs —
+        used for random augmentations that must be identical on both.
     """
 
     def __init__(
         self,
-        img_dirs: List[str],
-        detect_tumors: Optional[bool] = True,
-        crop_to_liver: Optional[bool] = False,
-        transform: Optional[Any] = None,
-        paired_transform: Optional[Any] = None,
-    ):
-        """
-        Initialize the LiTS Dataset
-
-        :param img_dirs:            list of image directories to pull images from
-        :param detect_tumors:       boolean to tell whether to add a tumor class to the dataset
-                                    If false, all tumors are treated as livers.
-        :param transform:           list of transforms to conduct on volumes and segmentations
-        :param paired_transform:    list of transforms which must be done on pairs of data
-                                    This is used for randomized transforms which must be done
-                                    the same way for a volume and its respective segmentation.
-        """
-        self.volume_img_paths = []
-        self.segmentation_img_paths = []
+        img_dirs: list[str],
+        detect_tumors: bool | None = True,
+        crop_to_liver: bool | None = False,
+        transform: Any | None = None,
+        paired_transform: Any | None = None,
+    ) -> None:
+        self.volume_img_paths: list[str] = []
+        self.segmentation_img_paths: list[str] = []
         for path in img_dirs:
-            self.volume_img_paths.extend(glob.glob(os.path.join(path, "volume*.nii")))
+            self.volume_img_paths.extend(sorted(glob.glob(os.path.join(path, "volume*.nii"))))
             self.segmentation_img_paths.extend(
-                glob.glob(os.path.join(path, "segmentation*.nii"))
+                sorted(glob.glob(os.path.join(path, "segmentation*.nii")))
             )
 
         self.transform = transform
@@ -45,64 +62,107 @@ class LITSDataset(Dataset):
         self.detect_tumors = detect_tumors
         self.crop_to_liver = crop_to_liver
 
-    def find_liver(self, imgs: Tuple) -> Tuple:
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def find_liver(self, imgs: tuple[np.ndarray, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+        """Crop the depth axis to slices that contain foreground voxels.
+
+        Parameters
+        ----------
+        imgs:
+            ``(vol, seg)`` pair with shape ``(D, H, W)`` each.
+
+        Returns
+        -------
+        vol, seg:
+            Pair of arrays with shape ``(H, W, n_slices)`` where *n_slices*
+            is the count of depth slices that have at least one non-zero
+            segmentation voxel.
+
+        Note
+        ----
+        The original implementation contained ``return tuple(vol, seg)`` which
+        raises ``TypeError`` because :func:`tuple` accepts at most one argument.
+        The fix is the plain comma-separated return ``return vol, seg``.
         """
-        Crops volume depth to the region where liver segmentations exist
+        vol_arr, seg_arr = imgs
+        depth = seg_arr.shape[0]
 
-        :param imgs:    volume-segmentation pair
-        :return:        volume and segmentation cropped such that the first and last slices have liver detections
-        """
-        n_slice = []
-        seg_img = imgs[1]
-        depth = imgs[1].shape[0]
+        n_slice = [i for i in range(depth) if seg_arr[i].sum() > 0]
 
-        for eachslice in np.arange(depth):
-            if seg_img[eachslice].sum() > 0:
-                n_slice.append(eachslice)
-        vol = np.transpose(np.array([imgs[0][i] for i in n_slice]), (1, 2, 0))
-        seg = np.transpose(np.array([imgs[1][i] for i in n_slice]), (1, 2, 0))
+        vol_cropped = np.transpose(np.array([vol_arr[i] for i in n_slice]), (1, 2, 0))
+        seg_cropped = np.transpose(np.array([seg_arr[i] for i in n_slice]), (1, 2, 0))
 
-        return tuple(vol, seg)
+        # Fix: was ``return tuple(vol, seg)`` — TypeError; correct form is plain return.
+        return vol_cropped, seg_cropped
+
+    # ------------------------------------------------------------------
+    # Dataset protocol
+    # ------------------------------------------------------------------
 
     def __len__(self) -> int:
-        """
-        Get the length of the dataset
-
-        :return:    length of the dataset
-        """
+        """Return the number of volume-segmentation pairs in the dataset."""
         return len(self.volume_img_paths)
 
-    def __getitem__(self, idx: int) -> Tuple:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """Load and return the ``(image, mask)`` pair at *idx*.
+
+        Returns
+        -------
+        image:
+            Float32 tensor of shape ``(1, D, H, W)`` (channel-first CDHW).
+        mask:
+            Long (int64) tensor with labels in {0, 1, 2}.
         """
-        Get a volume and segmentation pair given an index
+        # Load NIfTI — stored as (H, W, D) per NIfTI convention.
+        # Cast to SpatialImage so mypy knows get_fdata() is available.
+        vol_img = cast(SpatialImage, nib.load(self.volume_img_paths[idx]))
+        seg_img = cast(SpatialImage, nib.load(self.segmentation_img_paths[idx]))
+        volume: np.ndarray = np.asarray(vol_img.get_fdata(), dtype=np.float32)
+        segmentation: np.ndarray = np.asarray(seg_img.get_fdata(), dtype=np.float32)
 
-        :param idx: index of the volume-segmentation pair
-        :return:    tuple containing the volume-segmentation pair
-        """
-        volume = nib.load(self.volume_img_paths[idx]).get_fdata()
-        volume = np.asarray(volume)
-
-        segmentation = nib.load(self.segmentation_img_paths[idx]).get_fdata()
-        segmentation = np.asarray(segmentation)
-
-        vol_temp = np.transpose(volume, (2, 0, 1))
-        seg_temp = np.transpose(segmentation, (2, 0, 1))
+        # Reorder to (D, H, W) for depth-first processing.
+        vol_arr: np.ndarray = np.transpose(volume, (2, 0, 1))
+        seg_arr: np.ndarray = np.transpose(segmentation, (2, 0, 1))
 
         if self.crop_to_liver:
-            volume, segmentation = self.find_liver((vol_temp, seg_temp))
+            # find_liver returns (H, W, D) arrays.
+            vol_arr, seg_arr = self.find_liver((vol_arr, seg_arr))
+            # Bring back to (D, H, W).
+            vol_arr = np.transpose(vol_arr, (2, 0, 1))
+            seg_arr = np.transpose(seg_arr, (2, 0, 1))
 
+        # Apply per-array transforms (may return ndarray or Tensor).
+        vol_out: Any = vol_arr
+        seg_out: Any = seg_arr
         if self.transform:
-            volume = self.transform(volume)
-            segmentation = self.transform(segmentation)
+            vol_out = self.transform(vol_out)
+            seg_out = self.transform(seg_out)
+
+        # Convert to tensors if not already done by transforms.
+        if not isinstance(vol_out, torch.Tensor):
+            vol_out = torch.from_numpy(vol_out)
+        if not isinstance(seg_out, torch.Tensor):
+            seg_out = torch.from_numpy(seg_out)
+
+        # Ensure float32 image, long mask.
+        image: torch.Tensor = vol_out.float()
+        mask: torch.Tensor = seg_out
 
         if self.paired_transform:
-            volume, segmentation = self.paired_transform((volume, segmentation))
+            image, mask = self.paired_transform((image, mask))
 
-        # In case any transforms modifies the segmentation values (namely resize)
-        segmentation = torch.round(segmentation)
+        # Round in case any spatial transform introduced interpolation artefacts.
+        mask = torch.round(mask).long()
 
-        # Phase 1 of training only detects liver regions
+        # Phase-1 training: collapse tumour label → liver.
         if not self.detect_tumors:
-            segmentation = torch.clamp(segmentation, 0, 1)
+            mask = torch.clamp(mask, 0, 1)
 
-        return volume, segmentation
+        # Ensure channel-first: (D, H, W) → (1, D, H, W).
+        if image.dim() == 3:
+            image = image.unsqueeze(0)
+
+        return image, mask

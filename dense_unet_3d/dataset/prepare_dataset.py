@@ -1,4 +1,5 @@
-from typing import Dict, Optional
+import math
+import random
 
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -11,7 +12,38 @@ from dense_unet_3d.dataset.transforms.Resize import Resize
 from dense_unet_3d.dataset.transforms.ScaleAndPadOrCrop import ScaleAndPadOrCrop
 
 
-def compose_transforms(config: Dict) -> Dict:
+def make_split(
+    volume_ids: list[str],
+    val_fraction: float = 0.2,
+    seed: int = 42,
+) -> tuple[list[str], list[str]]:
+    """Return a deterministic (train, val) partition of *volume_ids*.
+
+    The split is reproducible for a given *seed*: calling this function twice
+    with the same arguments always produces identical lists.  The original
+    list order is preserved after shuffling so the result depends only on the
+    seed, not on any external randomness.
+
+    Args:
+        volume_ids:   Sequence of volume identifier strings to split.
+        val_fraction: Fraction of volumes assigned to validation (default 0.2).
+        seed:         Integer seed for the shuffle RNG.
+
+    Returns:
+        A ``(train_ids, val_ids)`` tuple of lists; both together form a
+        partition of *volume_ids* (disjoint, union = all).
+    """
+    shuffled = list(volume_ids)
+    rng = random.Random(seed)
+    rng.shuffle(shuffled)
+
+    n_val = math.ceil(len(shuffled) * val_fraction)
+    val_ids = shuffled[:n_val]
+    train_ids = shuffled[n_val:]
+    return train_ids, val_ids
+
+
+def compose_transforms(config: dict) -> dict:
     """
     Composes the necessary transforms into lists based on user configuration
 
@@ -25,7 +57,7 @@ def compose_transforms(config: Dict) -> Dict:
 
     # Transforms that must be completed on a set of images
     # These are usually probability-based transforms which must happen on both volume and segmentation
-    paired_transforms = []
+    paired_transforms: list[RandomHorizontalFlip | ScaleAndPadOrCrop] = []
 
     dataset_configs = config["dataset"]
 
@@ -54,7 +86,7 @@ def compose_transforms(config: Dict) -> Dict:
     }
 
 
-def prepare_dataset(config: Dict, train: bool) -> LITSDataset:
+def prepare_dataset(config: dict, train: bool) -> LITSDataset:
     """
     Builds the dataset based on user configuration
 
@@ -80,7 +112,7 @@ def prepare_dataset(config: Dict, train: bool) -> LITSDataset:
     return dataset
 
 
-def prepare_dataloader(config: Dict, train: Optional[bool] = True) -> DataLoader:
+def prepare_dataloader(config: dict, train: bool = True) -> DataLoader:
     """
     Builds the dataloader class to pass into PyTorch
 

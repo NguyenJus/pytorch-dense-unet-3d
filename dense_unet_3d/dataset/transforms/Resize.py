@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import torch
 import torch.nn.functional as F
 
@@ -9,7 +7,7 @@ class Resize:
     Resizes a 3D image tensor to the provided size
     """
 
-    def __init__(self, size: Tuple):
+    def __init__(self, size: tuple):
         """
         Initialize the Resize transform
 

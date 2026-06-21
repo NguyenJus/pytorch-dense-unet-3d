@@ -10,6 +10,8 @@ pathing:
     - null
 
 dataset:
+  split_seed: 42
+  val_fraction: 0.2
   batch_size: 3
   resize_img: True
   resize_dims:

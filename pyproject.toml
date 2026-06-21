@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dense-unet-3d"
+version = "0.1.0"
+description = "3D-DenseUNet-569: faithful PyTorch implementation for medical image segmentation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Justin Nguyen", email = "JustinTNguyen64@gmail.com" }]
+dependencies = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "numpy>=1.24",
+    "nibabel>=5.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65",
+    "matplotlib>=3.7",
+]
+
+[project.scripts]
+"dense-unet-3d" = "dense_unet_3d.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dense_unet_3d*"]
+
+# ── ruff ──────────────────────────────────────────────────────────────────────
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "T20"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dense_unet_3d"]
+
+# ── mypy ──────────────────────────────────────────────────────────────────────
+
+[tool.mypy]
+python_version = "3.10"
+strict = false
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+# ── pytest ────────────────────────────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
