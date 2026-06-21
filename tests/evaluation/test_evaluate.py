@@ -15,7 +15,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from dense_unet_3d.evaluation.evaluate import evaluate
+from dense_unet_3d.evaluation.dice_score import dice_global, dice_per_case
+from dense_unet_3d.evaluation.evaluate import NUM_CLASSES, evaluate
 
 # ---------------------------------------------------------------------------
 # Tiny deterministic stub model
@@ -232,3 +233,89 @@ def test_evaluate_runs_on_cpu() -> None:
 
     assert isinstance(result, dict)
     assert len(result) >= 4
+
+
+# ---------------------------------------------------------------------------
+# 8. Streaming refactor must produce metrics IDENTICAL to the batched reference
+# ---------------------------------------------------------------------------
+
+
+class _VariedModel(nn.Module):
+    """
+    Produces non-trivial, deterministic logits that depend on the input so that
+    argmax varies across voxels — exercising real intersection/union counts for
+    both liver (class 1) and tumor (class 2).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._p = nn.Parameter(torch.zeros(1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        n, _, d, h, w = x.shape
+        out = torch.zeros(n, 3, d, h, w)
+        # Channel logits derived deterministically from the input itself.
+        out[:, 0] = x[:, 0] * 0.5
+        out[:, 1] = torch.sin(x[:, 0] * 3.0)
+        out[:, 2] = torch.cos(x[:, 0] * 2.0) - 0.2
+        return out
+
+
+def _reference_metrics(model, device, val_loader) -> dict[str, float]:
+    """
+    The ORIGINAL batched implementation: collect every batch's full logits and
+    targets, torch.cat the whole val set, then compute Dice once.  Used as the
+    ground-truth reference the streaming evaluate() must match exactly.
+    """
+    model.eval()
+    all_preds: list[torch.Tensor] = []
+    all_targets: list[torch.Tensor] = []
+    with torch.no_grad():
+        for volume, target in val_loader:
+            volume = volume.to(device, dtype=torch.float32)
+            if target.dim() == 5:
+                target = target.squeeze(1)
+            target = target.to(device, dtype=torch.long)
+            logits = model(volume)
+            all_preds.append(logits.cpu())
+            all_targets.append(target.cpu())
+    preds_cat = torch.cat(all_preds, dim=0)
+    targets_cat = torch.cat(all_targets, dim=0)
+    pc = dice_per_case(preds_cat, targets_cat, num_classes=NUM_CLASSES)
+    gl = dice_global(preds_cat, targets_cat, num_classes=NUM_CLASSES)
+    return {
+        "liver_per_case": float(pc[1].item()),
+        "liver_global": float(gl[1].item()),
+        "tumor_per_case": float(pc[2].item()),
+        "tumor_global": float(gl[2].item()),
+    }
+
+
+def _make_varied_val_loader(
+    n_batches: int = 4, batch_size: int = 2, d: int = 3, h: int = 5, w: int = 5
+) -> DataLoader:
+    """Synthetic multi-batch loader with all three classes present across volumes."""
+    torch.manual_seed(7)
+    n_total = n_batches * batch_size
+    images = torch.randn(n_total, 1, d, h, w)
+    targets = torch.randint(0, 3, (n_total, 1, d, h, w), dtype=torch.long)
+    return DataLoader(TensorDataset(images, targets), batch_size=batch_size)
+
+
+def test_evaluate_streaming_matches_batched_reference() -> None:
+    """
+    The streaming evaluate() must return metric values identical (within fp
+    tolerance) to the original batched-then-cat reference implementation.
+    """
+    import pytest
+
+    device = torch.device("cpu")
+    val_loader = _make_varied_val_loader()
+
+    reference = _reference_metrics(_VariedModel(), device, val_loader)
+    result = evaluate(_VariedModel(), device, val_loader)
+
+    for key in ("liver_per_case", "liver_global", "tumor_per_case", "tumor_global"):
+        assert result[key] == pytest.approx(reference[key], abs=1e-6, rel=1e-6), (
+            f"{key}: streaming={result[key]} != reference={reference[key]}"
+        )

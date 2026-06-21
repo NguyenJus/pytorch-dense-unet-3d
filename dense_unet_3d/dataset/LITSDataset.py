@@ -47,6 +47,7 @@ class LITSDataset(Dataset):
         detect_tumors: bool | None = True,
         crop_to_liver: bool | None = False,
         transform: Any | None = None,
+        mask_transform: Any | None = None,
         paired_transform: Any | None = None,
     ) -> None:
         self.volume_img_paths: list[str] = []
@@ -58,6 +59,9 @@ class LITSDataset(Dataset):
             )
 
         self.transform = transform
+        # Mask-specific transform path (nearest-neighbour resize, no HU clamp).
+        # Falls back to ``transform`` only if no dedicated mask path is given.
+        self.mask_transform = mask_transform
         self.paired_transform = paired_transform
         self.detect_tumors = detect_tumors
         self.crop_to_liver = crop_to_liver
@@ -91,6 +95,15 @@ class LITSDataset(Dataset):
         depth = seg_arr.shape[0]
 
         n_slice = [i for i in range(depth) if seg_arr[i].sum() > 0]
+
+        if not n_slice:
+            raise ValueError(
+                "find_liver: segmentation volume contains no foreground "
+                "(liver/tumour) voxels — every depth slice is all-background, "
+                "so there is nothing to crop to. All-background volumes are "
+                "valid in LiTS but cannot be used with crop_to_liver=True; "
+                "filter them out or disable crop_to_liver."
+            )
 
         vol_cropped = np.transpose(np.array([vol_arr[i] for i in n_slice]), (1, 2, 0))
         seg_cropped = np.transpose(np.array([seg_arr[i] for i in n_slice]), (1, 2, 0))
@@ -139,7 +152,12 @@ class LITSDataset(Dataset):
         seg_out: Any = seg_arr
         if self.transform:
             vol_out = self.transform(vol_out)
-            seg_out = self.transform(seg_out)
+        # The mask MUST use its own nearest-neighbour pipeline so integer
+        # labels are never averaged by trilinear interpolation, and is never
+        # HU-clamped.  Fall back to ``transform`` only if no mask path exists.
+        seg_transform = self.mask_transform if self.mask_transform is not None else self.transform
+        if seg_transform:
+            seg_out = seg_transform(seg_out)
 
         # Convert to tensors if not already done by transforms.
         if not isinstance(vol_out, torch.Tensor):

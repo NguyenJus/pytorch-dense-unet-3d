@@ -164,6 +164,7 @@ def _cycling_iter(loader: DataLoader) -> Iterator:
 
 def _run_epoch(
     *,
+    config: dict[str, Any],
     model: nn.Module,
     device: torch.device,
     loader: DataLoader,
@@ -184,6 +185,10 @@ def _run_epoch(
     running_loss: float = 0.0
     count: int = 0
 
+    # Build the criterion ONCE (weights from config, tensor on device) — never
+    # rebuild it per step inside the loop.
+    criterion = get_criterion(config, device=device)
+
     for volume, segmentation in islice(_cycling_iter(loader), steps_per_epoch):
         volume = volume.to(device, dtype=torch.float32)
         if segmentation.dim() == 5:
@@ -192,7 +197,6 @@ def _run_epoch(
 
         optimizer.zero_grad()
         logits = model(volume)
-        criterion = get_criterion(logits)
         loss = criterion(logits, segmentation)
         loss.backward()
         optimizer.step()
@@ -263,6 +267,7 @@ def run_phase_a(
 
     for epoch in tqdm(range(1, total_epochs + 1), desc="Phase A", position=0, leave=True):
         epoch_loss = _run_epoch(
+            config=config,
             model=model,
             device=device,
             loader=train_loader,
@@ -393,6 +398,7 @@ def run_phase_b(
 
     for epoch in tqdm(range(1, total_epochs + 1), desc="Phase B", position=0, leave=True):
         epoch_loss = _run_epoch(
+            config=config,
             model=model,
             device=device,
             loader=train_loader,

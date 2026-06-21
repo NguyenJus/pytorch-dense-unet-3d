@@ -30,6 +30,7 @@ import nibabel as nib
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import yaml
 
 # ---------------------------------------------------------------------------
@@ -104,21 +105,9 @@ def _load_model_from_checkpoint(
     fallback is transparent to callers.
     """
     ckpt: dict[str, Any] = torch.load(checkpoint_path, map_location=device, weights_only=False)
-
-    # Try the real model first.
-    try:
-        from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
-
-        model: nn.Module = DenseUNet3d()
-        model.load_state_dict(ckpt["model_state_dict"])
-        model = model.to(device)
-        model.eval()
-        return model
-    except Exception:
-        pass
-
-    # Fallback: detect test stub by its state_dict keys.
     state = ckpt["model_state_dict"]
+
+    # Legitimate test-stub checkpoint: detect by its exact state_dict keys.
     if set(state.keys()) == {"conv.weight", "conv.bias"}:
         conv = nn.Conv3d(1, 3, kernel_size=1)
         conv.load_state_dict({"weight": state["conv.weight"], "bias": state["conv.bias"]})
@@ -127,10 +116,21 @@ def _load_model_from_checkpoint(
         stub.eval()
         return stub
 
-    raise RuntimeError(
-        f"Cannot reconstruct model from checkpoint {checkpoint_path}. "
-        "Unsupported state_dict keys: " + str(list(state.keys()))
-    )
+    # Otherwise this is a real DenseUNet3d checkpoint. Let a genuine key/shape
+    # mismatch surface (re-raised with context) instead of being swallowed and
+    # masked by a misleading 'Cannot reconstruct model' message.
+    from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
+
+    model: nn.Module = DenseUNet3d()
+    try:
+        model.load_state_dict(state)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to load DenseUNet3d state_dict from checkpoint {checkpoint_path}: {exc}"
+        ) from exc
+    model = model.to(device)
+    model.eval()
+    return model
 
 
 # ---------------------------------------------------------------------------
@@ -223,15 +223,28 @@ def _cmd_predict(args: argparse.Namespace) -> None:
     volume = torch.from_numpy(data).permute(2, 0, 1).unsqueeze(0).unsqueeze(0).float()
     volume = volume.to(device)
 
+    # The model has a FIXED input contract of (D=12, H=224, W=224) — its decoder
+    # targets are hardcoded. Resize the input to that contract (trilinear, mirroring
+    # the dataset's Resize transform) before inference, then map the predicted LABEL
+    # volume back to the original spatial dims with nearest-neighbour interpolation
+    # (labels must NOT be interpolated continuously).
+    model_dhw = (12, 224, 224)
+    orig_dhw = (volume.shape[2], volume.shape[3], volume.shape[4])
+    volume = F.interpolate(volume, size=model_dhw, mode="trilinear", align_corners=True)
+
     # Run inference.
     with torch.no_grad():
         logits = model(volume)  # (1, C, D, H, W)
 
-    # Argmax over channel dim → (1, D, H, W).
-    pred = logits.argmax(dim=1).squeeze(0).cpu().numpy().astype(np.int16)
+    # Argmax over channel dim → (1, 1, D, H, W) label volume at the model resolution.
+    pred = logits.argmax(dim=1, keepdim=True).float()
+
+    # Resize labels back to the ORIGINAL input spatial dims (nearest-neighbour).
+    pred = F.interpolate(pred, size=orig_dhw, mode="nearest")
+    pred_np = pred.squeeze(0).squeeze(0).cpu().numpy().astype(np.int16)  # (D, H, W)
 
     # Back to NIfTI HWD order: (D, H, W) → (H, W, D).
-    pred_hwd: np.ndarray[Any, Any] = np.transpose(pred, (1, 2, 0))
+    pred_hwd: np.ndarray[Any, Any] = np.transpose(pred_np, (1, 2, 0))
 
     out_img = nib.Nifti1Image(pred_hwd, affine)
     nib.save(out_img, args.output)

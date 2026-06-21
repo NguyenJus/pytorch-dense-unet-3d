@@ -190,3 +190,65 @@ class TestGetItem:
         assert image.shape[0] == 1
         assert image.shape[2] == 224
         assert image.shape[3] == 224
+
+
+# ---------------------------------------------------------------------------
+# FIX 1: mask must be resized with NEAREST-neighbour, never trilinear
+# ---------------------------------------------------------------------------
+
+
+class TestMaskNearestResize:
+    """The seg mask must pass through a nearest-neighbour resize path."""
+
+    def test_no_interpolated_labels_at_boundaries(self, tmp_path: Path) -> None:
+        """A mask with adjacent labels 1 and 2 resized through the dataset
+        pipeline must contain ONLY values in {0, 1, 2} — no interpolated
+        boundary classes (e.g. 1.5 -> rounds to 2 but the class is invented).
+        """
+        from dense_unet_3d.dataset.prepare_dataset import compose_transforms
+
+        # Volume small in-plane so Resize up-samples 64->224, exercising interp.
+        rng = np.random.default_rng(7)
+        vol = rng.uniform(-200, 250, (64, 64, 6)).astype(np.float32)
+        # Sharp adjacent label bands: half the image is liver(1), half tumour(2).
+        seg = np.zeros((64, 64, 6), dtype=np.int16)
+        seg[:32] = 1
+        seg[32:] = 2
+        _write_nifti(tmp_path / "volume0.nii", vol)
+        _write_nifti(tmp_path / "segmentation0.nii", seg)
+
+        config = {
+            "dataset": {
+                "clamp_hu": True,
+                "clamp_hu_range": {"min": -200, "max": 250},
+                "resize_img": True,
+                "resize_dims": {"D": 12, "H": 224, "W": 224},
+                "random_hflip": False,
+                "scale_img": False,
+            }
+        }
+        transform = compose_transforms(config, train=False)
+        ds = LITSDataset(
+            img_dirs=[str(tmp_path)],
+            transform=transform["all_transforms"],
+            mask_transform=transform["mask_transforms"],
+            paired_transform=transform["paired_transforms"],
+        )
+
+        _image, mask = ds[0]
+        unique = set(torch.unique(mask).tolist())
+        assert unique <= {0, 1, 2}, f"interpolated/invented labels present: {unique}"
+
+
+# ---------------------------------------------------------------------------
+# FIX 3: all-background volume -> clear ValueError, not cryptic transpose crash
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyForeground:
+    def test_all_zero_seg_raises_value_error(self, dataset_no_transform: LITSDataset) -> None:
+        """find_liver on an all-background seg must raise a descriptive ValueError."""
+        vol = np.zeros((12, 224, 224), dtype=np.float32)
+        seg = np.zeros((12, 224, 224), dtype=np.int16)
+        with pytest.raises(ValueError, match="(?i)foreground|liver|background|empty"):
+            dataset_no_transform.find_liver((vol, seg))

@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import os
 import tempfile
+from unittest import mock
 
 import pytest
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
+from dense_unet_3d.training import train as train_mod
 from dense_unet_3d.training.train import get_optimizer, get_scheduler, train
 
 # ---------------------------------------------------------------------------
@@ -183,6 +185,31 @@ class TestEmptyDataloaderNoNameError:
         assert len(losses) == 1, f"Expected 1 epoch loss entry, got {len(losses)}"
         # The documented return for empty loader is 0.0
         assert losses[0] == pytest.approx(0.0), f"Expected 0.0 for empty loader, got {losses[0]}"
+
+
+class TestCriterionBuiltOncePerEpoch:
+    """get_criterion must be constructed once before the batch loop, not per-batch."""
+
+    def test_criterion_built_once_over_multi_batch_loader(self) -> None:
+        model = _TinyModel()
+        # 3 batches of size 2 -> 3 iterations through the inner loop.
+        torch.manual_seed(0)
+        volumes = torch.randn(6, 1, 4, 8, 8)
+        labels = torch.randint(0, 3, (6, 1, 4, 8, 8))
+        loader = DataLoader(TensorDataset(volumes, labels), batch_size=2)
+
+        real_get_criterion = train_mod.get_criterion
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _base_config(tmp, use_scheduler=False)
+            with mock.patch.object(
+                train_mod, "get_criterion", side_effect=real_get_criterion
+            ) as spy:
+                train(cfg, model, torch.device("cpu"), loader)
+
+        assert spy.call_count == 1, (
+            f"get_criterion should be built once per epoch, got {spy.call_count} "
+            "calls (rebuilt per batch?)"
+        )
 
 
 class TestCpuDryRun:

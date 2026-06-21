@@ -22,13 +22,16 @@ from __future__ import annotations
 
 import os
 import tempfile
+from unittest import mock
 
 import pytest
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
+from dense_unet_3d.training import cascaded_driver as cascaded_mod
 from dense_unet_3d.training.cascaded_driver import (
+    _run_epoch,
     load_checkpoint,
     run_cascaded_training,
     run_phase_a,
@@ -90,6 +93,35 @@ def _base_cfg(tmp_dir: str, *, use_scheduler: bool = True) -> dict:
             "steps_per_epoch": 10,
         },
     }
+
+
+class TestCriterionBuiltOncePerEpoch:
+    """_run_epoch must build the criterion once, not once per mini-batch step."""
+
+    def test_criterion_built_once_over_multi_step_epoch(self) -> None:
+        model = _TinyModel()
+        loader = _loader(n=6)  # batch_size 2 -> enough for 3 steps
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.5)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _base_cfg(tmp, use_scheduler=False)
+
+        real_get_criterion = cascaded_mod.get_criterion
+        with mock.patch.object(
+            cascaded_mod, "get_criterion", side_effect=real_get_criterion
+        ) as spy:
+            _run_epoch(
+                config=cfg,
+                model=model,
+                device=torch.device("cpu"),
+                loader=loader,
+                optimizer=optimizer,
+                steps_per_epoch=3,
+            )
+
+        assert spy.call_count == 1, (
+            f"get_criterion should be built once per epoch, got {spy.call_count} "
+            "calls (rebuilt per step?)"
+        )
 
 
 # ---------------------------------------------------------------------------

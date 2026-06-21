@@ -143,6 +143,10 @@ def train(
     optimizer = get_optimizer(model, config)
     scheduler = get_scheduler(optimizer, config)
 
+    # Build the criterion ONCE (weights read from config, tensor on device) —
+    # never rebuild it per batch inside the inner loop.
+    criterion = get_criterion(config, device=device)
+
     total_epochs: int = config["training"]["epochs"]
     losses: list[float] = []
 
@@ -161,8 +165,7 @@ def train(
 
             logits = model(volume)
 
-            # Move weight tensor to device inside get_criterion (no .to(criterion)).
-            criterion = get_criterion(logits)
+            # Reuse the criterion built once before the loop (no per-batch rebuild).
             loss = criterion(logits, segmentation.squeeze(1))
 
             loss.backward()

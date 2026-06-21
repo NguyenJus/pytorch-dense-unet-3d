@@ -1,10 +1,12 @@
 """Tests for weighted cross-entropy loss (E1).
 
 Acceptance criteria:
+- Class weights are read from config (background/liver/lesion -> classes 0/1/2).
+- Absent config weights fall back to defaults [0.2, 1.2, 2.2].
 - Loss matches hand-computed weighted-CE reference within tolerance.
-- Weight ordering is [0.2, 1.2, 2.2] for [bg, liver, lesion].
-- Weight tensor lands on the input's device (CPU in this test).
-- Criterion object is not .to()-moved.
+- Weight ordering is [bg, liver, lesion].
+- Weight tensor lands on the requested device (CPU in this test).
+- Criterion object is not .to()-moved (no nn.Parameters).
 """
 
 import pytest
@@ -14,6 +16,21 @@ import torch.nn.functional as F
 from dense_unet_3d.training.loss import CLASS_WEIGHTS, get_criterion
 
 # ------------------------------------------------------------------ fixtures
+
+
+@pytest.fixture
+def base_config() -> dict:
+    """Minimal config carrying class weights under training.class_weights."""
+    return {
+        "training": {
+            "criterion": "CrossEntropyLoss",
+            "class_weights": {
+                "background": 0.2,
+                "liver": 1.2,
+                "lesion": 2.2,
+            },
+        },
+    }
 
 
 @pytest.fixture
@@ -29,23 +46,54 @@ def toy_batch() -> tuple[torch.Tensor, torch.Tensor]:
 
 
 def test_class_weights_ordering() -> None:
-    """Weight tensor must be [bg=0.2, liver=1.2, lesion=2.2] in that order."""
+    """Default weight tensor must be [bg=0.2, liver=1.2, lesion=2.2]."""
     expected = torch.tensor([0.2, 1.2, 2.2])
     assert torch.allclose(CLASS_WEIGHTS, expected), (
         f"CLASS_WEIGHTS mismatch: expected {expected}, got {CLASS_WEIGHTS}"
     )
 
 
+def test_weights_read_from_config() -> None:
+    """get_criterion must read class weights from config, not a hardcoded list."""
+    config = {
+        "training": {
+            "criterion": "CrossEntropyLoss",
+            "class_weights": {
+                "background": 0.1,
+                "liver": 1.0,
+                "lesion": 5.0,
+            },
+        },
+    }
+    criterion = get_criterion(config)
+    expected = torch.tensor([0.1, 1.0, 5.0])
+    assert criterion.weight is not None
+    assert torch.allclose(criterion.weight.cpu(), expected), (
+        f"Weight mismatch: got {criterion.weight}, expected {expected}"
+    )
+
+
+def test_weights_fall_back_to_defaults_when_absent() -> None:
+    """When config has no class_weights key, fall back to [0.2, 1.2, 2.2]."""
+    config = {"training": {"criterion": "CrossEntropyLoss"}}
+    criterion = get_criterion(config)
+    expected = torch.tensor([0.2, 1.2, 2.2])
+    assert criterion.weight is not None
+    assert torch.allclose(criterion.weight.cpu(), expected), (
+        f"Default weight mismatch: got {criterion.weight}, expected {expected}"
+    )
+
+
 def test_loss_matches_hand_computed_reference(
+    base_config: dict,
     toy_batch: tuple[torch.Tensor, torch.Tensor],
 ) -> None:
     """Loss from get_criterion() matches torch reference with the same weights."""
     logits, target = toy_batch
     device = logits.device
 
-    criterion = get_criterion(logits)
+    criterion = get_criterion(base_config, device=device)
 
-    # Reference: build criterion the same way but inline
     weight_ref = torch.tensor([0.2, 1.2, 2.2], dtype=torch.float32, device=device)
     ref_criterion = torch.nn.CrossEntropyLoss(weight=weight_ref)
 
@@ -57,73 +105,56 @@ def test_loss_matches_hand_computed_reference(
     )
 
 
-def test_weight_tensor_on_input_device(
+def test_weight_tensor_on_requested_device(
+    base_config: dict,
     toy_batch: tuple[torch.Tensor, torch.Tensor],
 ) -> None:
-    """The criterion's weight tensor must be on the same device as the input."""
-    logits, target = toy_batch
+    """The criterion's weight tensor must be on the requested device."""
+    logits, _ = toy_batch
     device = logits.device
 
-    criterion = get_criterion(logits)
+    criterion = get_criterion(base_config, device=device)
 
-    # The weight attribute of CrossEntropyLoss should be on CPU (same as input)
     assert criterion.weight is not None
     assert criterion.weight.device == device, (
         f"Weight on {criterion.weight.device}, expected {device}"
     )
 
 
-def test_criterion_object_not_to_moved(
-    toy_batch: tuple[torch.Tensor, torch.Tensor],
-) -> None:
+def test_criterion_object_not_to_moved(base_config: dict) -> None:
     """Criterion itself must NOT be an nn.Module that was .to(device)-moved.
 
-    We verify this structurally: CrossEntropyLoss is an nn.Module but the
-    standard usage is to only move the weight tensor, not the module itself.
-    The criterion should have no parameters (weight is a buffer attr, not a
-    Parameter), so criterion.parameters() should be empty.
+    nn.CrossEntropyLoss has no trainable parameters; only the weight tensor is
+    moved to device, not the module.
     """
-    logits, _ = toy_batch
-    criterion = get_criterion(logits)
+    criterion = get_criterion(base_config)
 
-    # nn.CrossEntropyLoss has no trainable parameters
     params = list(criterion.parameters())
     assert params == [], (
         "Criterion should have no nn.Parameters — do not add the weight as a "
         f"Parameter or move the criterion as a model. Got params: {params}"
     )
-
-    # Confirm the criterion is a plain CrossEntropyLoss (not a custom wrapped module)
     assert isinstance(criterion, torch.nn.CrossEntropyLoss)
 
 
 def test_loss_is_finite_on_toy_input(
+    base_config: dict,
     toy_batch: tuple[torch.Tensor, torch.Tensor],
 ) -> None:
     """Loss value is finite (not NaN or Inf) on valid toy logits + target."""
     logits, target = toy_batch
-    criterion = get_criterion(logits)
+    criterion = get_criterion(base_config)
     loss = criterion(logits, target)
     assert torch.isfinite(loss), f"Loss is not finite: {loss.item()}"
 
 
-def test_loss_value_numerical_check() -> None:
-    """Hand-verify loss for a single-pixel, single-class scenario.
-
-    logits = [[10, 0, 0]] → predicts class 0 (bg) with high confidence.
-    target = [0] → correct prediction.
-    With weight [0.2, 1.2, 2.2], CE for class-0 with very high logit ≈ 0.
-    Cross-check via F.cross_entropy with explicit weight.
-    """
-    torch.manual_seed(0)
-    # Shape: (N=1, C=3, D=1, H=1, W=1)
-    logits = torch.tensor([[[[[10.0]], [[0.0]], [[-10.0]]]]]).permute(0, 1, 2, 3, 4)
-    # Reshape to (N=1, C=3, D=1, H=1, W=1)
+def test_loss_value_numerical_check(base_config: dict) -> None:
+    """Hand-verify loss for a single-pixel, strong-class-0 scenario."""
     logits = torch.zeros(1, 3, 1, 1, 1)
     logits[0, 0, 0, 0, 0] = 10.0  # strong prediction for class 0
     target = torch.zeros(1, 1, 1, 1, dtype=torch.long)  # class 0
 
-    criterion = get_criterion(logits)
+    criterion = get_criterion(base_config)
     actual_loss = criterion(logits, target)
 
     weight = torch.tensor([0.2, 1.2, 2.2])

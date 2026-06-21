@@ -337,3 +337,28 @@ class TestResize:
         img = torch.randn(1, 12, 224, 224)
         result = transform(img)
         assert result.shape == (1, 12, 224, 224)
+
+    def test_resize_nearest_preserves_integer_labels(self) -> None:
+        """mode='nearest' must never interpolate — only original label values survive."""
+        target = (4, 8, 8)
+        transform = Resize(size=target, mode="nearest")
+        # A label volume with adjacent classes 1 and 2.
+        img = torch.zeros(1, 2, 4, 4)
+        img[:, 0] = 1
+        img[:, 1] = 2
+        result = transform(img)
+        unique = set(torch.unique(result).tolist())
+        assert unique <= {0.0, 1.0, 2.0}, f"nearest resize introduced new values: {unique}"
+        # No averaged 1.5 boundary value.
+        assert 1.5 not in unique
+
+    def test_resize_default_mode_is_trilinear(self) -> None:
+        """Default mode stays trilinear (interpolates), preserving prior behaviour."""
+        target = (4, 8, 8)
+        transform = Resize(size=target)
+        img = torch.zeros(1, 2, 4, 4)
+        img[:, 0] = 1.0
+        img[:, 1] = 2.0
+        result = transform(img)
+        # Trilinear interpolation produces values strictly between 1 and 2.
+        assert ((result > 1.0) & (result < 2.0)).any()

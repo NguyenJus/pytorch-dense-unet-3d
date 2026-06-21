@@ -17,7 +17,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from dense_unet_3d.evaluation.dice_score import dice_global, dice_per_case
+from dense_unet_3d.evaluation.dice_score import _binary_dice, _to_binary_masks
 
 NUM_CLASSES = 3  # 0=background, 1=liver, 2=tumor
 
@@ -59,8 +59,17 @@ def evaluate(
     """
     model.eval()
 
-    all_preds: list[torch.Tensor] = []
-    all_targets: list[torch.Tensor] = []
+    # Streaming aggregates — never hold all batches' full logits at once.
+    #
+    # per_case: accumulate the sum of per-volume binary-Dice scalars and the
+    #   volume count, then finalise as sum / n_volumes (mirrors dice_per_case).
+    # global: accumulate per-class intersection and denominator (|A|+|B|) voxel
+    #   counts across every volume, then finalise the single ratio at the end
+    #   with the empty-class convention (denom == 0 → 1.0) (mirrors dice_global).
+    pc_sum = torch.zeros(NUM_CLASSES, dtype=torch.float64)
+    gl_inter = torch.zeros(NUM_CLASSES, dtype=torch.float64)
+    gl_denom = torch.zeros(NUM_CLASSES, dtype=torch.float64)
+    n_volumes = 0
 
     with torch.no_grad():
         for volume, target in val_loader:
@@ -70,22 +79,38 @@ def evaluate(
                 target = target.squeeze(1)  # → (N, D, H, W)
             target = target.to(device, dtype=torch.long)
 
-            logits = model(volume)  # (N, 3, D, H, W)
+            logits = model(volume).cpu()  # (N, 3, D, H, W)
+            target = target.cpu()
 
-            all_preds.append(logits.cpu())
-            all_targets.append(target.cpu())
+            pred_masks, gt_masks = _to_binary_masks(logits, target, NUM_CLASSES)
+            n = logits.shape[0]
+            n_volumes += n
 
-    if not all_preds:
+            for c in range(NUM_CLASSES):
+                for i in range(n):
+                    # per-case scalar (applies empty-class convention internally)
+                    pc_sum[c] += _binary_dice(
+                        pred_masks[i, c].float(), gt_masks[i, c].float()
+                    )
+                # global counts accumulated across all voxels/volumes
+                pred_c = pred_masks[:, c].float()
+                gt_c = gt_masks[:, c].float()
+                gl_inter[c] += (pred_c * gt_c).sum().item()
+                gl_denom[c] += pred_c.sum().item() + gt_c.sum().item()
+
+    if n_volumes == 0:
         raise ValueError(
             "val_loader yielded no batches — cannot compute Dice metrics on an "
             "empty validation set.  Check that the val DataLoader is non-empty."
         )
 
-    preds_cat = torch.cat(all_preds, dim=0)  # (N_total, 3, D, H, W)
-    targets_cat = torch.cat(all_targets, dim=0)  # (N_total, D, H, W)
-
-    pc = dice_per_case(preds_cat, targets_cat, num_classes=NUM_CLASSES)
-    gl = dice_global(preds_cat, targets_cat, num_classes=NUM_CLASSES)
+    pc = pc_sum / n_volumes
+    gl = torch.zeros(NUM_CLASSES, dtype=torch.float64)
+    for c in range(NUM_CLASSES):
+        if gl_denom[c] == 0:
+            gl[c] = 1.0
+        else:
+            gl[c] = 2.0 * gl_inter[c] / gl_denom[c]
 
     return {
         "liver_per_case": float(pc[1].item()),

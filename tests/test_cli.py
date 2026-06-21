@@ -381,6 +381,104 @@ class TestPredictCommand:
 
 
 # ---------------------------------------------------------------------------
+# FIX 1: predict resizes input to the model's fixed (12,224,224) contract and
+# resizes the predicted LABEL map back to the original input spatial shape.
+# ---------------------------------------------------------------------------
+
+
+class TestPredictResizesToModelContract:
+    """predict must run on a volume whose spatial dims differ from 12x224x224
+    and return a segmentation matching the ORIGINAL input spatial shape."""
+
+    def test_predict_real_model_mismatched_shape(self) -> None:
+        from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _tiny_config(tmp)
+            config_path = os.path.join(tmp, "tiny.yaml")
+            _write_config(config_path, cfg)
+
+            # Real-model checkpoint: the model has a FIXED (12,224,224) contract.
+            model = DenseUNet3d()
+            ckpt_path = os.path.join(tmp, "checkpoint.pt")
+            _write_checkpoint(ckpt_path, model)
+
+            # Input volume with spatial dims DIFFERENT from 12x224x224.
+            orig_hwd = (64, 48, 20)  # (H, W, D)
+            rng = np.random.default_rng(7)
+            data = rng.uniform(-200.0, 250.0, size=orig_hwd).astype(np.float32)
+            input_path = os.path.join(tmp, "input.nii.gz")
+            nib.save(nib.Nifti1Image(data, np.eye(4)), input_path)
+
+            output_path = os.path.join(tmp, "seg.nii.gz")
+
+            result = _run_cli(
+                "predict",
+                "--config",
+                config_path,
+                "--checkpoint",
+                ckpt_path,
+                "--input",
+                input_path,
+                "--output",
+                output_path,
+            )
+
+            assert result.returncode == 0, (
+                f"predict on mismatched-shape volume exited {result.returncode}\n"
+                f"stdout: {result.stdout}\nstderr: {result.stderr}"
+            )
+            assert os.path.isfile(output_path), f"predict did not write NIfTI to {output_path}"
+
+            seg = nib.load(output_path)
+            assert seg.get_fdata().shape == orig_hwd, (
+                f"Segmentation shape {seg.get_fdata().shape} != original input {orig_hwd}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# FIX 2: a real-model-shaped checkpoint with a mismatched key must surface the
+# actual load_state_dict error, not a misleading 'Cannot reconstruct model'.
+# ---------------------------------------------------------------------------
+
+
+class TestCheckpointLoadErrorSurfaces:
+    """_load_model_from_checkpoint must re-raise genuine state_dict load errors."""
+
+    def test_mismatched_key_raises_load_error(self) -> None:
+        import torch as _torch
+
+        from dense_unet_3d.cli import _load_model_from_checkpoint
+        from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
+
+        with tempfile.TemporaryDirectory() as tmp:
+            # Real-model state_dict, but corrupt one key so load_state_dict fails.
+            model = DenseUNet3d()
+            state = model.state_dict()
+            a_key = next(iter(state.keys()))
+            bad_state = dict(state)
+            bad_state["__bogus_unexpected_key__"] = bad_state.pop(a_key)
+
+            ckpt_path = os.path.join(tmp, "checkpoint.pt")
+            _torch.save({"model_state_dict": bad_state}, ckpt_path)
+
+            with pytest.raises(Exception) as excinfo:
+                _load_model_from_checkpoint(ckpt_path, _torch.device("cpu"))
+
+            msg = str(excinfo.value)
+            assert "Cannot reconstruct model" not in msg, (
+                f"Expected the real load_state_dict error, got misleading message: {msg}"
+            )
+            # The error must reference the key mismatch.
+            assert (
+                "__bogus_unexpected_key__" in msg
+                or "Unexpected key" in msg
+                or "Missing key" in msg
+                or "state_dict" in msg
+            ), f"Error does not mention the key mismatch: {msg}"
+
+
+# ---------------------------------------------------------------------------
 # Test 6: entry point registered in pyproject.toml
 # ---------------------------------------------------------------------------
 
