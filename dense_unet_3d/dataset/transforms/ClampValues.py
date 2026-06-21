@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import torch
 
 
@@ -9,7 +7,7 @@ class ClampValues:
     Any values outside of the provided range are set as the min or max of that range
     """
 
-    def __init__(self, voxel_range: Tuple):
+    def __init__(self, voxel_range: tuple):
         """
         Initialize the ClampValues transform
 
