@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 try:
     import tomllib
 except ModuleNotFoundError:
@@ -126,14 +128,15 @@ def test_cli_module_has_main() -> None:
 
 
 def test_cli_passes_ruff_check() -> None:
+    import shutil
     import subprocess
-    import sys
 
     cli_path = ROOT / "dense_unet_3d" / "cli.py"
-    python_dir = Path(sys.executable).parent
-    ruff_bin = python_dir / "ruff"
+    ruff_bin = shutil.which("ruff")
+    if ruff_bin is None:
+        pytest.skip("ruff not available on PATH")
     result = subprocess.run(
-        [str(ruff_bin), "check", str(cli_path)],
+        [ruff_bin, "check", str(cli_path)],
         capture_output=True,
         text=True,
     )
@@ -144,14 +147,15 @@ def test_cli_passes_ruff_check() -> None:
 
 
 def test_cli_passes_mypy() -> None:
+    import shutil
     import subprocess
-    import sys
 
     cli_path = ROOT / "dense_unet_3d" / "cli.py"
-    python_dir = Path(sys.executable).parent
-    mypy_bin = python_dir / "mypy"
+    mypy_bin = shutil.which("mypy")
+    if mypy_bin is None:
+        pytest.skip("mypy not available on PATH")
     result = subprocess.run(
-        [str(mypy_bin), str(cli_path), "--ignore-missing-imports"],
+        [mypy_bin, str(cli_path), "--ignore-missing-imports"],
         capture_output=True,
         text=True,
     )
