@@ -23,7 +23,7 @@ counts differ from the paper's figure.
 pip install -e .
 ```
 
-Requires Python 3.10+, PyTorch 2.x, nibabel, pyyaml, tqdm, matplotlib.
+Requires Python 3.11+, PyTorch 2.x, nibabel, pyyaml, tqdm, matplotlib.
 A CPU-only install is sufficient for all tests; a CUDA-capable GPU is needed
 only for the full training run.
 

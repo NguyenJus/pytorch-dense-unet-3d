@@ -11,14 +11,10 @@ Acceptance criteria (from spec §6 A1):
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import pytest
-
-try:
-    import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib  # type: ignore[no-redef]
 
 ROOT = Path(__file__).parent.parent
 PYPROJECT = ROOT / "pyproject.toml"
@@ -45,9 +41,9 @@ def test_package_name_and_python_floor() -> None:
     project = data["project"]
     assert project["name"] == "dense-unet-3d", f"name={project['name']!r}"
     requires = project["requires-python"]
-    # Must be 3.10+
-    assert "3.10" in requires or "3.11" in requires or "3.12" in requires, (
-        f"requires-python={requires!r} should be >=3.10"
+    # Must be 3.11+
+    assert "3.11" in requires or "3.12" in requires, (
+        f"requires-python={requires!r} should be >=3.11"
     )
 
 

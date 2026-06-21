@@ -5,7 +5,7 @@ Acceptance criteria (§6 A2):
 - Triggers on `push` and `pull_request`.
 - Runs the four gate commands: ruff check, ruff format --check, mypy, pytest -q.
 - No GPU steps (no 'gpu', 'cuda', 'nvidia' in the workflow).
-- Python version pinned to 3.10+.
+- Python version pinned to 3.11+.
 """
 
 from __future__ import annotations
@@ -110,19 +110,19 @@ def test_no_gpu_steps() -> None:
         )
 
 
-def test_python_version_is_310_or_higher() -> None:
-    """Python version must be pinned to 3.10 or higher."""
+def test_python_version_is_311_or_higher() -> None:
+    """Python version must be pinned to 3.11 or higher."""
     assert WORKFLOW_PATH.exists()
     raw = WORKFLOW_PATH.read_text()
     # Look for python-version: "3.X" or '3.X'
     versions = re.findall(r"""python-version['":\s]+['"]([\d.]+)['"]""", raw)
     if not versions:
-        # Also check matrix style: ["3.10", "3.11"]
+        # Also check matrix style: ["3.11"]
         versions = re.findall(r"""(3\.\d+)""", raw)
     assert versions, "No Python version specification found in CI workflow"
     for v in versions:
         try:
             major, minor = v.split(".")[:2]
-            assert int(major) == 3 and int(minor) >= 10, f"Python version {v} is below 3.10"
+            assert int(major) == 3 and int(minor) >= 11, f"Python version {v} is below 3.11"
         except (ValueError, IndexError):
             pass  # skip unparseable tokens
