@@ -1,5 +1,7 @@
 # 3D-DenseUNet-569
 
+### 5 years later, reimplemented and fixed. A checkpoint and improvements will come as I find the time.
+
 A paper-faithful PyTorch implementation of **3D-DenseUNet-569** from
 [Alalwan et al., *Alexandria Engineering Journal* 60 (2021) 1231–1239][paper],
 with architectural gap-fills from [Li et al., H-DenseUNet, arXiv:1709.07330][hdense].
@@ -121,8 +123,7 @@ The full analysis and encoder/decoder channel widths are in
 
 ## Honesty / reporting note
 
-The paper reports Dice on the **hidden 70-volume LiTS test set** that was never
-released publicly.
+The paper reports Dice on the **hidden 70-volume LiTS test set**.
 This repository reports Dice on a **local, seeded 80/20 holdout** of the 131
 labeled volumes.
 Absolute numbers differ and are **not directly comparable** to the paper's
@@ -138,7 +139,7 @@ The local holdout is a practical proxy for tracking training progress.
 
 ## Results
 
-The table below will be filled after the gated GPU training run (Task H).
+The table below will be filled after the GPU training run.
 
 | Metric | Liver | Tumor |
 | --- | --- | --- |
