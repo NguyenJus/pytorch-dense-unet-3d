@@ -64,12 +64,14 @@ def test_dice_per_case_perfect_prediction_is_one() -> None:
     scores = dice_per_case(pred, target, num_classes=3)
     # class 0: present in both GT and pred → Dice = 1.0
     assert scores.shape == (3,)
-    assert scores[0].item() == pytest.approx(1.0), (
-        f"class 0: expected 1.0, got {scores[0].item()}"
-    )
+    assert scores[0].item() == pytest.approx(1.0), f"class 0: expected 1.0, got {scores[0].item()}"
     # classes 1 and 2: absent in both GT and pred (no volumes present) → nan
-    assert torch.isnan(scores[1]), f"class 1 (absent everywhere): expected nan, got {scores[1].item()}"
-    assert torch.isnan(scores[2]), f"class 2 (absent everywhere): expected nan, got {scores[2].item()}"
+    assert torch.isnan(scores[1]), (
+        f"class 1 (absent everywhere): expected nan, got {scores[1].item()}"
+    )
+    assert torch.isnan(scores[2]), (
+        f"class 2 (absent everywhere): expected nan, got {scores[2].item()}"
+    )
 
 
 def test_dice_global_perfect_prediction_is_one() -> None:
@@ -91,9 +93,7 @@ def test_dice_per_case_disjoint_is_zero_for_nonempty_classes() -> None:
     pred, target = _make_disjoint()
     scores = dice_per_case(pred, target, num_classes=3)
     # class 0: absent in both GT and pred → excluded → nan (presence-aware)
-    assert torch.isnan(scores[0]), (
-        f"class 0 (both empty): expected nan, got {scores[0].item()}"
-    )
+    assert torch.isnan(scores[0]), f"class 0 (both empty): expected nan, got {scores[0].item()}"
     # class 1: pred has it, target doesn't → counts, Dice = 0.0
     assert scores[1].item() == pytest.approx(0.0), f"class 1: expected 0.0, got {scores[1].item()}"
     # class 2: target has it, pred doesn't → counts, Dice = 0.0

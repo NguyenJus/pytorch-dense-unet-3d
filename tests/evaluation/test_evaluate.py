@@ -538,9 +538,7 @@ def test_tumor_metrics_unchanged_by_liver_fold() -> None:
 
     # tumor_per_case should match strict class-2
     if math.isnan(strict_tumor_per_case):
-        assert math.isnan(tumor_per_case), (
-            f"Expected tumor_per_case=nan, got {tumor_per_case}"
-        )
+        assert math.isnan(tumor_per_case), f"Expected tumor_per_case=nan, got {tumor_per_case}"
     else:
         assert tumor_per_case == pytest.approx(strict_tumor_per_case, abs=1e-6), (
             f"tumor_per_case {tumor_per_case} != strict {strict_tumor_per_case}"

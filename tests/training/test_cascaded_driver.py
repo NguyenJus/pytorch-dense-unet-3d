@@ -515,8 +515,18 @@ class TestPhaseCheckpointSelection:
         loader = _loader()
 
         epoch_metrics = [
-            {"liver_per_case": 0.9, "liver_global": 0.9, "tumor_per_case": 0.05, "tumor_global": 0.05},
-            {"liver_per_case": 0.7, "liver_global": 0.7, "tumor_per_case": 0.65, "tumor_global": 0.65},
+            {
+                "liver_per_case": 0.9,
+                "liver_global": 0.9,
+                "tumor_per_case": 0.05,
+                "tumor_global": 0.05,
+            },
+            {
+                "liver_per_case": 0.7,
+                "liver_global": 0.7,
+                "tumor_per_case": 0.65,
+                "tumor_global": 0.65,
+            },
         ]
         call_count = 0
 
@@ -535,7 +545,9 @@ class TestPhaseCheckpointSelection:
             run_phase_a(cfg, model, torch.device("cpu"), loader, val_loader=None)
             phase_a_best_path = os.path.join(tmp, "test_cascaded", "phase_a", "best.pt")
 
-            with mock.patch("dense_unet_3d.evaluation.evaluate.evaluate", side_effect=_fake_evaluate):
+            with mock.patch(
+                "dense_unet_3d.evaluation.evaluate.evaluate", side_effect=_fake_evaluate
+            ):
                 model_b = _TinyModel()
                 result = run_phase_b(
                     cfg,
@@ -571,7 +583,12 @@ class TestPhaseCheckpointSelection:
         model = _TinyModel()
         loader = _loader()
 
-        same_metrics = {"liver_per_case": 0.75, "liver_global": 0.75, "tumor_per_case": 0.55, "tumor_global": 0.55}
+        same_metrics = {
+            "liver_per_case": 0.75,
+            "liver_global": 0.75,
+            "tumor_per_case": 0.55,
+            "tumor_global": 0.55,
+        }
 
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _base_cfg(tmp)
@@ -612,7 +629,12 @@ class TestPhaseCheckpointSelection:
         model = _TinyModel()
         loader = _loader()
 
-        same_metrics = {"liver_per_case": 0.8, "liver_global": 0.8, "tumor_per_case": 0.5, "tumor_global": 0.5}
+        same_metrics = {
+            "liver_per_case": 0.8,
+            "liver_global": 0.8,
+            "tumor_per_case": 0.5,
+            "tumor_global": 0.5,
+        }
 
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _base_cfg(tmp)
@@ -622,9 +644,7 @@ class TestPhaseCheckpointSelection:
             with mock.patch(
                 "dense_unet_3d.evaluation.evaluate.evaluate", return_value=same_metrics
             ):
-                result = run_phase_a(
-                    cfg, model, torch.device("cpu"), loader, val_loader=loader
-                )
+                result = run_phase_a(cfg, model, torch.device("cpu"), loader, val_loader=loader)
 
             assert result["best_epoch"] == 1, (
                 f"Phase A tie should keep epoch 1 (strict >), got best_epoch={result['best_epoch']}"
@@ -645,8 +665,18 @@ class TestPhaseCheckpointSelection:
         # Epoch 2: liver=0.5, tumor=0.5 -> nanmean=0.5
         # Epoch 1 should win despite having NaN tumor
         epoch_metrics = [
-            {"liver_per_case": 0.6, "liver_global": 0.6, "tumor_per_case": float("nan"), "tumor_global": float("nan")},
-            {"liver_per_case": 0.5, "liver_global": 0.5, "tumor_per_case": 0.5, "tumor_global": 0.5},
+            {
+                "liver_per_case": 0.6,
+                "liver_global": 0.6,
+                "tumor_per_case": float("nan"),
+                "tumor_global": float("nan"),
+            },
+            {
+                "liver_per_case": 0.5,
+                "liver_global": 0.5,
+                "tumor_per_case": 0.5,
+                "tumor_global": 0.5,
+            },
         ]
         call_count = 0
 
@@ -685,9 +715,7 @@ class TestPhaseCheckpointSelection:
             )
 
             # No RuntimeWarning about all-NaN slice should have leaked
-            runtime_warnings = [
-                w for w in warning_list if issubclass(w.category, RuntimeWarning)
-            ]
+            runtime_warnings = [w for w in warning_list if issubclass(w.category, RuntimeWarning)]
             assert not runtime_warnings, (
                 f"Unexpected RuntimeWarning(s) leaked: {[str(w.message) for w in runtime_warnings]}"
             )

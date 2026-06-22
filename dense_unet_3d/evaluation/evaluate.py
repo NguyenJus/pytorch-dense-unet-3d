@@ -131,11 +131,11 @@ def evaluate(
 
             # Folded liver masks: liver ∪ tumor (issue #6)
             pred_liver_batch = (hard_pred >= 1).float()  # (N, D, H, W)
-            gt_liver_batch = (target >= 1).float()        # (N, D, H, W)
+            gt_liver_batch = (target >= 1).float()  # (N, D, H, W)
 
             # Strict tumor masks: class 2 only
             pred_tumor_batch = (hard_pred == 2).float()  # (N, D, H, W)
-            gt_tumor_batch = (target == 2).float()        # (N, D, H, W)
+            gt_tumor_batch = (target == 2).float()  # (N, D, H, W)
 
             n = logits.shape[0]
             n_volumes += n
