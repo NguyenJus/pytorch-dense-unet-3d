@@ -1,12 +1,21 @@
 """
 Tests for dense_unet_3d.evaluation.dice_score.
 
-Convention documented in dice_score.py:
-    Dice = 1.0 when both prediction and ground-truth are empty for a class.
+Conventions documented in dice_score.py:
+
+Per-case (presence-aware) convention:
+    A volume counts toward class c's mean iff the class is present in GT OR
+    prediction for that volume (gt_mask.any() OR pred_mask.any()).
+    Both-empty volumes are EXCLUDED from the mean — not scored 1.0.
+    If a class is absent everywhere in the batch → score is float('nan').
+
+Global convention (unchanged):
+    Dice = 1.0 when both prediction and ground-truth are empty for a class
+    (empty-class convention, applied globally across all voxels).
 
 Two public functions are tested:
     dice_per_case(preds, targets, num_classes) -> Tensor[C]
-        Mean of per-volume Dice scores over all cases in a batch.
+        Presence-aware mean per-volume Dice; absent-everywhere → nan.
     dice_global(preds, targets, num_classes) -> Tensor[C]
         Single Dice computed from intersection/union summed across ALL voxels
         in all cases.
@@ -36,7 +45,7 @@ def _make_disjoint(c: int = 3) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Single volume: prediction says class 1 everywhere; target says class 2
     everywhere. Classes 1 and 2 are therefore disjoint → Dice=0.
-    Class 0: both empty → Dice=1.
+    Class 0: both empty → excluded → nan (presence-aware per-case convention).
     """
     n, d, h, w = 1, 2, 2, 2
     target = torch.full((n, d, h, w), fill_value=2, dtype=torch.long)
@@ -53,12 +62,14 @@ def _make_disjoint(c: int = 3) -> tuple[torch.Tensor, torch.Tensor]:
 def test_dice_per_case_perfect_prediction_is_one() -> None:
     pred, target = _make_perfect()
     scores = dice_per_case(pred, target, num_classes=3)
-    # All classes should be 1.0 (class 0 is used; 1 and 2 are both-empty → 1.0)
+    # class 0: present in both GT and pred → Dice = 1.0
     assert scores.shape == (3,)
-    for c in range(3):
-        assert scores[c].item() == pytest.approx(1.0), (
-            f"class {c}: expected 1.0, got {scores[c].item()}"
-        )
+    assert scores[0].item() == pytest.approx(1.0), (
+        f"class 0: expected 1.0, got {scores[0].item()}"
+    )
+    # classes 1 and 2: absent in both GT and pred (no volumes present) → nan
+    assert torch.isnan(scores[1]), f"class 1 (absent everywhere): expected nan, got {scores[1].item()}"
+    assert torch.isnan(scores[2]), f"class 2 (absent everywhere): expected nan, got {scores[2].item()}"
 
 
 def test_dice_global_perfect_prediction_is_one() -> None:
@@ -72,20 +83,20 @@ def test_dice_global_perfect_prediction_is_one() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2. Disjoint → 0.0 for non-empty classes; empty-both → 1.0
+# 2. Disjoint → 0.0 for non-empty classes; empty-both → nan (excluded)
 # ---------------------------------------------------------------------------
 
 
 def test_dice_per_case_disjoint_is_zero_for_nonempty_classes() -> None:
     pred, target = _make_disjoint()
     scores = dice_per_case(pred, target, num_classes=3)
-    # class 0: both empty → 1.0
-    assert scores[0].item() == pytest.approx(1.0), (
-        f"class 0 (both empty): expected 1.0, got {scores[0].item()}"
+    # class 0: absent in both GT and pred → excluded → nan (presence-aware)
+    assert torch.isnan(scores[0]), (
+        f"class 0 (both empty): expected nan, got {scores[0].item()}"
     )
-    # class 1: pred has it, target doesn't → 0.0
+    # class 1: pred has it, target doesn't → counts, Dice = 0.0
     assert scores[1].item() == pytest.approx(0.0), f"class 1: expected 0.0, got {scores[1].item()}"
-    # class 2: target has it, pred doesn't → 0.0
+    # class 2: target has it, pred doesn't → counts, Dice = 0.0
     assert scores[2].item() == pytest.approx(0.0), f"class 2: expected 0.0, got {scores[2].item()}"
 
 
@@ -98,20 +109,21 @@ def test_dice_global_disjoint_is_zero_for_nonempty_classes() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. Empty-both convention: Dice = 1.0 when both A and B are empty
+# 3. Per-case presence-aware convention: absent class → nan
 # ---------------------------------------------------------------------------
 
 
-def test_dice_per_case_empty_both_convention() -> None:
-    """When a class is absent from BOTH pred and target, Dice must be 1.0."""
+def test_dice_per_case_absent_class_is_nan() -> None:
+    """A class absent in BOTH pred and target across a single volume is excluded → nan."""
     n, c, d, h, w = 1, 3, 2, 2, 2
     # Only class 0 is present in both; classes 1 and 2 are absent everywhere.
     target = torch.zeros(n, d, h, w, dtype=torch.long)
     pred = torch.zeros(n, c, d, h, w, dtype=torch.float32)
     pred[:, 0, :, :, :] = 1.0
     scores = dice_per_case(pred, target, num_classes=3)
-    assert scores[1].item() == pytest.approx(1.0), "both-empty class 1 should be 1.0"
-    assert scores[2].item() == pytest.approx(1.0), "both-empty class 2 should be 1.0"
+    # classes 1 and 2: absent in both GT and pred → no volumes included → nan
+    assert torch.isnan(scores[1]), "both-empty class 1 should be nan (excluded)"
+    assert torch.isnan(scores[2]), "both-empty class 2 should be nan (excluded)"
 
 
 def test_dice_global_empty_both_convention() -> None:
@@ -242,3 +254,67 @@ def test_per_case_and_global_diverge_on_multi_case_example() -> None:
     assert gl1 == pytest.approx(0.2), f"global class 1 expected 0.2, got {gl1}"
     # They must differ
     assert pc1 != pytest.approx(gl1), "per-case and global must diverge on this example"
+
+
+# ---------------------------------------------------------------------------
+# 6. Inflation reproduction: absent volumes must NOT be included in mean
+# ---------------------------------------------------------------------------
+
+
+def test_per_case_not_inflated_by_absent_class_volumes() -> None:
+    """
+    Presence-aware per-case: absent (both-empty) volumes must be excluded.
+
+    Batch of 5 volumes. Tumor (class 2) is present in only 1 volume (vol 0),
+    and completely missed by the predictor → Dice = 0.0 for that volume.
+    Volumes 1–4: class 2 absent in both GT and pred → excluded.
+
+    Expected tumor_per_case = 0.0 (just the one present volume, missed).
+    Old (inflated) average = (0.0 + 4 * 1.0) / 5 = 0.8 → must be avoided.
+    """
+    n, c, d, h, w = 5, 3, 2, 2, 2
+
+    # Target: vol 0 has all class-2 voxels; vols 1-4 are all background
+    target = torch.zeros(n, d, h, w, dtype=torch.long)
+    target[0] = 2  # vol 0: all tumor
+
+    # Pred: predict class 0 everywhere (miss tumor completely)
+    pred = torch.zeros(n, c, d, h, w, dtype=torch.float32)
+    pred[:, 0, :, :, :] = 1.0
+
+    scores = dice_per_case(pred, target, num_classes=3)
+    tumor_per_case = scores[2].item()
+
+    # Present in only 1 volume, missed → Dice 0.0
+    assert tumor_per_case == pytest.approx(0.0), (
+        f"tumor_per_case expected 0.0 (single present volume, missed); got {tumor_per_case}"
+    )
+
+    # Old inflated value would have been (0.0 + 4*1.0)/5 = 0.8
+    old_inflated = (0.0 + 4 * 1.0) / 5
+    assert tumor_per_case < old_inflated, (
+        f"tumor_per_case ({tumor_per_case}) should be strictly less than old inflated value "
+        f"({old_inflated})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 7. Absent-everywhere class → nan pin
+# ---------------------------------------------------------------------------
+
+
+def test_per_case_nan_when_class_absent_everywhere() -> None:
+    """Class 2 never appears in GT or pred in the whole batch → score is nan."""
+    n, c, d, h, w = 3, 3, 2, 2, 2
+
+    # All volumes: GT is all liver (class 1); pred says all liver (class 1)
+    target = torch.ones(n, d, h, w, dtype=torch.long)  # all class 1
+    pred = torch.zeros(n, c, d, h, w, dtype=torch.float32)
+    pred[:, 1, :, :, :] = 1.0  # predict class 1 everywhere
+
+    scores = dice_per_case(pred, target, num_classes=3)
+
+    # class 2 (tumor) never appears in GT or pred → excluded → nan
+    assert torch.isnan(scores[2]), (
+        f"class 2 absent everywhere: expected nan, got {scores[2].item()}"
+    )

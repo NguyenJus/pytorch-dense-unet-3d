@@ -495,3 +495,199 @@ class TestRunCascadedTraining:
                 cfg, model, torch.device("cpu"), loader, val_loader=loader
             )
         assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# Test: Phase B balanced selection (Issue #5)
+# ---------------------------------------------------------------------------
+
+
+class TestPhaseCheckpointSelection:
+    """Phase-specific checkpoint selection and strict > tie-break (Issue #5)."""
+
+    def test_phase_b_selects_balanced_over_tumor_blind(self) -> None:
+        """Phase B must select on nanmean(liver_per_case, tumor_per_case).
+
+        Epoch 1: liver=0.9, tumor=0.05  -> nanmean=0.475  (tumor-blind)
+        Epoch 2: liver=0.7, tumor=0.65  -> nanmean=0.675  (balanced) <- should win
+        """
+        model = _TinyModel()
+        loader = _loader()
+
+        epoch_metrics = [
+            {"liver_per_case": 0.9, "liver_global": 0.9, "tumor_per_case": 0.05, "tumor_global": 0.05},
+            {"liver_per_case": 0.7, "liver_global": 0.7, "tumor_per_case": 0.65, "tumor_global": 0.65},
+        ]
+        call_count = 0
+
+        def _fake_evaluate(model, device, loader):
+            nonlocal call_count
+            idx = call_count % len(epoch_metrics)
+            call_count += 1
+            return epoch_metrics[idx]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _base_cfg(tmp)
+            cfg["training"]["phase_b_epochs"] = 2
+            cfg["training"]["phase_b_steps_per_epoch"] = 2
+
+            # Run Phase A first to produce the best.pt checkpoint Phase B needs
+            run_phase_a(cfg, model, torch.device("cpu"), loader, val_loader=None)
+            phase_a_best_path = os.path.join(tmp, "test_cascaded", "phase_a", "best.pt")
+
+            with mock.patch("dense_unet_3d.evaluation.evaluate.evaluate", side_effect=_fake_evaluate):
+                model_b = _TinyModel()
+                result = run_phase_b(
+                    cfg,
+                    model_b,
+                    torch.device("cpu"),
+                    loader,
+                    val_loader=loader,
+                    phase_a_best_path=phase_a_best_path,
+                )
+
+            # The balanced epoch (epoch 2) has the higher combined nanmean -> must be selected
+            assert result["best_epoch"] == 2, (
+                f"Expected best_epoch=2 (balanced), got {result['best_epoch']}"
+            )
+
+            # Verify best.pt on disk also records epoch 2
+            best_ckpt = torch.load(
+                os.path.join(tmp, "test_cascaded", "phase_b", "best.pt"),
+                map_location="cpu",
+                weights_only=False,
+            )
+            assert best_ckpt["epoch"] == 2, (
+                f"best.pt should record epoch=2, got {best_ckpt['epoch']}"
+            )
+
+    def test_strict_gt_tie_break_retains_earlier_epoch(self) -> None:
+        """Equal selection score -> earlier epoch is retained (>  not >=).
+
+        Both epochs return the same liver+tumor nanmean. With >= the second
+        epoch would overwrite; with > the first epoch must be kept.
+        Tested on Phase B (and Phase A variant).
+        """
+        model = _TinyModel()
+        loader = _loader()
+
+        same_metrics = {"liver_per_case": 0.75, "liver_global": 0.75, "tumor_per_case": 0.55, "tumor_global": 0.55}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _base_cfg(tmp)
+            cfg["training"]["phase_b_epochs"] = 2
+            cfg["training"]["phase_b_steps_per_epoch"] = 2
+
+            run_phase_a(cfg, model, torch.device("cpu"), loader, val_loader=None)
+            phase_a_best_path = os.path.join(tmp, "test_cascaded", "phase_a", "best.pt")
+
+            with mock.patch(
+                "dense_unet_3d.evaluation.evaluate.evaluate", return_value=same_metrics
+            ):
+                model_b = _TinyModel()
+                result = run_phase_b(
+                    cfg,
+                    model_b,
+                    torch.device("cpu"),
+                    loader,
+                    val_loader=loader,
+                    phase_a_best_path=phase_a_best_path,
+                )
+
+            # Strict > means equal score must NOT overwrite -> best_epoch stays at 1
+            assert result["best_epoch"] == 1, (
+                f"Tie should keep epoch 1 (strict >), got best_epoch={result['best_epoch']}"
+            )
+            best_ckpt = torch.load(
+                os.path.join(tmp, "test_cascaded", "phase_b", "best.pt"),
+                map_location="cpu",
+                weights_only=False,
+            )
+            assert best_ckpt["epoch"] == 1, (
+                f"best.pt should record epoch=1 on tie, got {best_ckpt['epoch']}"
+            )
+
+    def test_strict_gt_tie_break_phase_a(self) -> None:
+        """Phase A also retains earlier epoch on tie (strict > not >=)."""
+        model = _TinyModel()
+        loader = _loader()
+
+        same_metrics = {"liver_per_case": 0.8, "liver_global": 0.8, "tumor_per_case": 0.5, "tumor_global": 0.5}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _base_cfg(tmp)
+            cfg["training"]["phase_a_epochs"] = 2
+            cfg["training"]["phase_a_steps_per_epoch"] = 2
+
+            with mock.patch(
+                "dense_unet_3d.evaluation.evaluate.evaluate", return_value=same_metrics
+            ):
+                result = run_phase_a(
+                    cfg, model, torch.device("cpu"), loader, val_loader=loader
+                )
+
+            assert result["best_epoch"] == 1, (
+                f"Phase A tie should keep epoch 1 (strict >), got best_epoch={result['best_epoch']}"
+            )
+
+    def test_phase_b_nanmean_falls_back_on_nan_component(self) -> None:
+        """When tumor_per_case is NaN, nanmean falls back to liver_per_case.
+
+        No RuntimeWarning should propagate. The NaN component is silently ignored,
+        and selection is driven by the liver component alone.
+        """
+        import warnings
+
+        model = _TinyModel()
+        loader = _loader()
+
+        # Epoch 1: liver=0.6, tumor=nan -> nanmean=0.6
+        # Epoch 2: liver=0.5, tumor=0.5 -> nanmean=0.5
+        # Epoch 1 should win despite having NaN tumor
+        epoch_metrics = [
+            {"liver_per_case": 0.6, "liver_global": 0.6, "tumor_per_case": float("nan"), "tumor_global": float("nan")},
+            {"liver_per_case": 0.5, "liver_global": 0.5, "tumor_per_case": 0.5, "tumor_global": 0.5},
+        ]
+        call_count = 0
+
+        def _fake_evaluate(model, device, loader):
+            nonlocal call_count
+            idx = call_count % len(epoch_metrics)
+            call_count += 1
+            return epoch_metrics[idx]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _base_cfg(tmp)
+            cfg["training"]["phase_b_epochs"] = 2
+            cfg["training"]["phase_b_steps_per_epoch"] = 2
+
+            run_phase_a(cfg, model, torch.device("cpu"), loader, val_loader=None)
+            phase_a_best_path = os.path.join(tmp, "test_cascaded", "phase_a", "best.pt")
+
+            with warnings.catch_warnings(record=True) as warning_list:
+                warnings.simplefilter("always")
+                with mock.patch(
+                    "dense_unet_3d.evaluation.evaluate.evaluate", side_effect=_fake_evaluate
+                ):
+                    model_b = _TinyModel()
+                    result = run_phase_b(
+                        cfg,
+                        model_b,
+                        torch.device("cpu"),
+                        loader,
+                        val_loader=loader,
+                        phase_a_best_path=phase_a_best_path,
+                    )
+
+            # Epoch 1 (liver=0.6, nanmean=0.6) > Epoch 2 (nanmean=0.5) -> epoch 1 wins
+            assert result["best_epoch"] == 1, (
+                f"NaN tumor fallback: expected epoch 1 to win, got {result['best_epoch']}"
+            )
+
+            # No RuntimeWarning about all-NaN slice should have leaked
+            runtime_warnings = [
+                w for w in warning_list if issubclass(w.category, RuntimeWarning)
+            ]
+            assert not runtime_warnings, (
+                f"Unexpected RuntimeWarning(s) leaked: {[str(w.message) for w in runtime_warnings]}"
+            )
