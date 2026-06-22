@@ -122,3 +122,15 @@ class TestValLoaderFromTestDirs:
         cfg["pathing"]["test_img_dirs"] = [None]
         with pytest.raises(ValueError, match="pathing.test_img_dirs"):
             prepare_dataloader(cfg, train=False)
+
+        # Case 3: test_img_dirs mixes a null entry with a real dir — the null
+        # would crash LITSDataset with os.path.join(None, ...), so it must be
+        # rejected eagerly with the same clear error.
+        cfg["pathing"]["test_img_dirs"] = [None, str(tmp_path)]
+        with pytest.raises(ValueError, match="pathing.test_img_dirs"):
+            prepare_dataloader(cfg, train=False)
+
+        # Case 4: empty list
+        cfg["pathing"]["test_img_dirs"] = []
+        with pytest.raises(ValueError, match="pathing.test_img_dirs"):
+            prepare_dataloader(cfg, train=False)

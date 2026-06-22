@@ -88,11 +88,11 @@ def prepare_dataset(config: dict, train: bool) -> LITSDataset:
         if (
             img_dirs is None
             or len(img_dirs) == 0
-            or all(d is None for d in img_dirs)
+            or any(d is None for d in img_dirs)
         ):
             raise ValueError(
                 "pathing.test_img_dirs must point to labeled volume directories for "
-                "non-dry-run evaluation, but it is unset or contains only null entries. "
+                "non-dry-run evaluation, but it is unset or contains null entries. "
                 "Set pathing.test_img_dirs in your config to one or more valid directories."
             )
 
