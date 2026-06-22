@@ -20,4 +20,4 @@ models/*
 *.pt
 
 # Brainstorm/spec scaffolding (durable findings live in docs/research/)
-docs/superpowers/
+docs/specs/
