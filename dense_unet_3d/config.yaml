@@ -7,11 +7,10 @@ pathing:
     - ./data/Training_Batch1/media/nas/01_Datasets/CT/LITS/Training Batch 1/
     - ./data/Training_Batch2/media/nas/01_Datasets/CT/LITS/Training Batch 2/
   test_img_dirs:
-    - null
+    # Must be set to real labeled volume directories for non-dry-run evaluation.
+    # The guard in prepare_dataset.py rejects unset/null values at runtime.
 
 dataset:
-  split_seed: 42
-  val_fraction: 0.2
   batch_size: 3
   resize_img: True
   resize_dims:

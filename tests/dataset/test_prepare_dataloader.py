@@ -86,3 +86,51 @@ class TestValLoaderDeterministic:
 
         loader = prepare_dataloader(_config(str(tmp_path)), train=True)
         assert isinstance(loader.sampler, RandomSampler)
+
+
+class TestValLoaderFromTestDirs:
+    def test_val_loader_builds_from_test_dirs_and_yields_batch(self, tmp_path: Path) -> None:
+        """Non-dry-run val loader built from test_img_dirs yields a (vol, seg) batch."""
+        vol = np.zeros((224, 224, 12), dtype=np.float32)
+        seg = np.zeros((224, 224, 12), dtype=np.int16)
+        seg[:10, :10, :] = 1  # some foreground
+        _write_nifti(tmp_path / "volume0.nii", vol)
+        _write_nifti(tmp_path / "segmentation0.nii", seg)
+
+        cfg = _config(str(tmp_path))
+        cfg["pathing"]["test_img_dirs"] = [str(tmp_path)]
+        loader = prepare_dataloader(cfg, train=False)
+
+        batch = next(iter(loader))
+        assert len(batch) == 2, "expected (volume, segmentation) pair"
+        volume_batch, seg_batch = batch
+        assert volume_batch.shape[0] == 1, "batch size should be 1"
+        assert seg_batch.shape[0] == 1, "batch size should be 1"
+
+    def test_unset_test_dirs_raises_clear_value_error(self, tmp_path: Path) -> None:
+        """prepare_dataloader(train=False) raises ValueError when test_img_dirs is None."""
+        import pytest
+
+        cfg = _config(str(tmp_path))
+
+        # Case 1: test_img_dirs is None
+        cfg["pathing"]["test_img_dirs"] = None
+        with pytest.raises(ValueError, match="pathing.test_img_dirs"):
+            prepare_dataloader(cfg, train=False)
+
+        # Case 2: test_img_dirs is [None]
+        cfg["pathing"]["test_img_dirs"] = [None]
+        with pytest.raises(ValueError, match="pathing.test_img_dirs"):
+            prepare_dataloader(cfg, train=False)
+
+        # Case 3: test_img_dirs mixes a null entry with a real dir — the null
+        # would crash LITSDataset with os.path.join(None, ...), so it must be
+        # rejected eagerly with the same clear error.
+        cfg["pathing"]["test_img_dirs"] = [None, str(tmp_path)]
+        with pytest.raises(ValueError, match="pathing.test_img_dirs"):
+            prepare_dataloader(cfg, train=False)
+
+        # Case 4: empty list
+        cfg["pathing"]["test_img_dirs"] = []
+        with pytest.raises(ValueError, match="pathing.test_img_dirs"):
+            prepare_dataloader(cfg, train=False)

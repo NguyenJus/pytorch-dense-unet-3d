@@ -47,10 +47,12 @@ The ``last`` and ``best`` checkpoint file names under each phase sub-dir::
 from __future__ import annotations
 
 import os
+import warnings
 from collections.abc import Iterator
 from itertools import islice
 from typing import Any
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch import optim
@@ -293,8 +295,8 @@ def run_phase_a(
 
         tqdm.write(f"Phase A epoch {epoch}/{total_epochs}: loss={epoch_loss:.4f}")
 
-        # Update best checkpoint.
-        if val_dice >= best_val_dice:
+        # Update best checkpoint (strict >: equal score keeps the earlier epoch).
+        if val_dice > best_val_dice:
             best_val_dice = val_dice
             best_epoch = epoch
             best_metrics = metrics
@@ -417,13 +419,24 @@ def run_phase_b(
             model.eval()
             val_metrics = evaluate(model, device, val_loader)
             metrics.update(val_metrics)
-            val_dice = float(val_metrics.get("liver_per_case", 0.0))
+            # Phase B: balanced selection on nanmean(liver_per_case, tumor_per_case).
+            # If both are NaN the result is NaN; treat NaN as "never better" (nan > x is False).
+            liver_pc = val_metrics.get("liver_per_case", float("nan"))
+            tumor_pc = val_metrics.get("tumor_per_case", float("nan"))
+            components = np.array([liver_pc, tumor_pc], dtype=float)
+            if np.all(np.isnan(components)):
+                val_dice = float("nan")
+            else:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    val_dice = float(np.nanmean(components))
         else:
             val_dice = 0.0
 
         tqdm.write(f"Phase B epoch {epoch}/{total_epochs}: loss={epoch_loss:.4f}")
 
-        if val_dice >= best_val_dice:
+        # Strict >: equal score keeps the earlier epoch; NaN is never better.
+        if val_dice > best_val_dice:
             best_val_dice = val_dice
             best_epoch = epoch
             best_metrics = metrics

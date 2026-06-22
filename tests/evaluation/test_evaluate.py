@@ -98,17 +98,30 @@ def test_evaluate_result_has_liver_and_tumor_keys() -> None:
 
 
 def test_evaluate_values_are_valid_dice_scores() -> None:
-    """Each Dice value must be a float in [0.0, 1.0]."""
+    """Each Dice value must be a float; per-case values may be nan when a class
+    is absent from every volume (presence-aware convention, issue #4).
+    Global values use the empty-class convention and remain in [0, 1]."""
+    import math
+
     model = _StubModel()
     device = torch.device("cpu")
     val_loader = _make_val_loader()
 
     result = evaluate(model, device, val_loader)
 
-    for key in ("liver_per_case", "liver_global", "tumor_per_case", "tumor_global"):
+    # Global values: always in [0, 1] (empty-class convention → 1.0 when absent)
+    for key in ("liver_global", "tumor_global"):
         val = result[key]
         assert isinstance(val, float), f"{key}: expected float, got {type(val)}"
         assert 0.0 <= val <= 1.0, f"{key}: value {val} out of [0, 1]"
+
+    # Per-case values: float in [0, 1] OR nan (presence-aware: absent class → nan)
+    for key in ("liver_per_case", "tumor_per_case"):
+        val = result[key]
+        assert isinstance(val, float), f"{key}: expected float, got {type(val)}"
+        assert (0.0 <= val <= 1.0) or math.isnan(val), (
+            f"{key}: value {val} is not in [0, 1] and not nan"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -302,20 +315,236 @@ def _make_varied_val_loader(
     return DataLoader(TensorDataset(images, targets), batch_size=batch_size)
 
 
+def _folded_liver_reference_metrics(model, device, val_loader) -> dict[str, float]:
+    """
+    Reference implementation computing folded-liver metrics for Issue #6.
+
+    liver_* uses folded masks: gt >= 1 (liver ∪ tumor), argmax >= 1.
+    tumor_* uses strict class-2 masks.
+    Per-case is presence-aware (§2.4); nan when absent (§2.5).
+    Global uses empty-class convention (denom==0 → 1.0).
+    """
+    from dense_unet_3d.evaluation.dice_score import _binary_dice
+
+    model.eval()
+    all_logits: list[torch.Tensor] = []
+    all_targets: list[torch.Tensor] = []
+    with torch.no_grad():
+        for volume, target in val_loader:
+            volume = volume.to(device, dtype=torch.float32)
+            if target.dim() == 5:
+                target = target.squeeze(1)
+            target = target.to(device, dtype=torch.long)
+            logits = model(volume)
+            all_logits.append(logits.cpu())
+            all_targets.append(target.cpu())
+    preds_cat = torch.cat(all_logits, dim=0)
+    targets_cat = torch.cat(all_targets, dim=0)
+
+    n = preds_cat.shape[0]
+    hard_pred = preds_cat.argmax(dim=1)  # (N, D, H, W)
+
+    # Folded liver masks
+    pred_liver = (hard_pred >= 1).float()
+    gt_liver = (targets_cat >= 1).float()
+    # Strict tumor masks
+    pred_tumor = (hard_pred == 2).float()
+    gt_tumor = (targets_cat == 2).float()
+
+    # Per-case presence-aware
+    liver_scores: list[float] = []
+    tumor_scores: list[float] = []
+    for i in range(n):
+        pl, gl_ = pred_liver[i], gt_liver[i]
+        if pl.any() or gl_.any():
+            liver_scores.append(_binary_dice(pl, gl_))
+        pt, gt_ = pred_tumor[i], gt_tumor[i]
+        if pt.any() or gt_.any():
+            tumor_scores.append(_binary_dice(pt, gt_))
+
+    liver_pc = sum(liver_scores) / len(liver_scores) if liver_scores else float("nan")
+    tumor_pc = sum(tumor_scores) / len(tumor_scores) if tumor_scores else float("nan")
+
+    # Global
+    li = (pred_liver * gt_liver).sum()
+    ld = pred_liver.sum() + gt_liver.sum()
+    liver_gl = float((2.0 * li / ld).item()) if ld > 0 else 1.0
+    ti = (pred_tumor * gt_tumor).sum()
+    td = pred_tumor.sum() + gt_tumor.sum()
+    tumor_gl = float((2.0 * ti / td).item()) if td > 0 else 1.0
+
+    return {
+        "liver_per_case": float(liver_pc),
+        "liver_global": float(liver_gl),
+        "tumor_per_case": float(tumor_pc),
+        "tumor_global": float(tumor_gl),
+    }
+
+
 def test_evaluate_streaming_matches_batched_reference() -> None:
     """
     The streaming evaluate() must return metric values identical (within fp
-    tolerance) to the original batched-then-cat reference implementation.
+    tolerance) to the folded-liver reference implementation (Issue #6).
+
+    liver_* uses folded masks (liver ∪ tumor); tumor_* is strict class 2.
     """
+    import math
+
     import pytest
 
     device = torch.device("cpu")
     val_loader = _make_varied_val_loader()
 
-    reference = _reference_metrics(_VariedModel(), device, val_loader)
+    reference = _folded_liver_reference_metrics(_VariedModel(), device, val_loader)
     result = evaluate(_VariedModel(), device, val_loader)
 
     for key in ("liver_per_case", "liver_global", "tumor_per_case", "tumor_global"):
-        assert result[key] == pytest.approx(reference[key], abs=1e-6, rel=1e-6), (
-            f"{key}: streaming={result[key]} != reference={reference[key]}"
+        ref_val = reference[key]
+        res_val = result[key]
+        if math.isnan(ref_val):
+            assert math.isnan(res_val), f"{key}: expected nan, got {res_val}"
+        else:
+            assert res_val == pytest.approx(ref_val, abs=1e-6, rel=1e-6), (
+                f"{key}: streaming={res_val} != reference={ref_val}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Issue #6 — Folded liver tests
+# ---------------------------------------------------------------------------
+
+
+class _TumorModel(nn.Module):
+    """
+    Predicts tumor (class 2) for all voxels.
+
+    Used to construct a scenario where some voxels are class-2 in both GT and
+    prediction, so tumor voxels contribute to the folded-liver intersection
+    but NOT to strict-class-1 liver intersection.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._p = nn.Parameter(torch.zeros(1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        n, _, d, h, w = x.shape
+        out = torch.zeros(n, 3, d, h, w)
+        out[:, 2] = 1.0  # class 2 (tumor) always wins
+        return out
+
+
+def test_folded_liver_exceeds_strict_class1_when_tumor_present() -> None:
+    """
+    When tumor voxels exist, folded liver_per_case must exceed strict class-1
+    Dice (strict inequality).
+
+    Construct: target has only class-2 (tumor) voxels.  Model predicts class-2
+    everywhere.  Folded liver (gt>=1, argmax>=1) → perfect overlap → Dice=1.0.
+    Strict class-1 (gt==1, argmax==1) → no class-1 voxels at all → nan.
+    So folded_liver_per_case (1.0) > strict_class1_liver_per_case (nan is not
+    a number but we verify: folded is 1.0 and strict is nan, i.e., absent).
+
+    We also use a mixed case (some class-1 + some class-2 voxels) so both
+    strict and folded are non-nan, and folded > strict because class-2 voxels
+    contribute to folded but not strict class-1 numerator.
+    """
+    import math
+
+    # Mixed target: half the voxels are class 1 (liver), half are class 2 (tumor).
+    # Model predicts class 2 everywhere.
+    # Strict class-1 Dice: pred_liver == (argmax==1) = empty, gt_liver = 4 voxels
+    #   → intersection 0, denom = 0+4 = 4 → Dice = 0.0
+    # Folded liver Dice: pred_liver = (argmax>=1) = all 8 voxels, gt_liver = all 8
+    #   → intersection 8, denom = 8+8 → Dice = 1.0
+    # So 1.0 > 0.0 — strict inequality holds.
+    images = torch.randn(1, 1, 2, 2, 2)
+    targets = torch.zeros(1, 1, 2, 2, 2, dtype=torch.long)
+    # Half the voxels = class 1 (liver), other half = class 2 (tumor)
+    targets[0, 0, 0, :, :] = 1  # 4 liver voxels
+    targets[0, 0, 1, :, :] = 2  # 4 tumor voxels
+    val_loader = DataLoader(TensorDataset(images, targets), batch_size=1)
+
+    model = _TumorModel()  # predicts class 2 everywhere
+    device = torch.device("cpu")
+
+    result = evaluate(model, device, val_loader)
+
+    # Compute strict class-1 Dice reference via dice_per_case
+    # (dice_per_case is NOT folded — strict per-class)
+    logits = model(images)  # (1, 3, 2, 2, 2)
+    targets_squeezed = targets.squeeze(1)  # (1, 2, 2, 2)
+    strict_scores = dice_per_case(logits, targets_squeezed, num_classes=3)
+    strict_class1_dice = float(strict_scores[1].item())
+
+    folded_liver_dice = result["liver_per_case"]
+
+    # Folded must be strictly greater than strict class-1
+    assert not math.isnan(folded_liver_dice), (
+        f"folded liver_per_case should not be nan, got {folded_liver_dice}"
+    )
+    if math.isnan(strict_class1_dice):
+        # Strict class-1 is nan (no class-1 prediction), folded is not nan → strictly greater
+        assert True, "folded > nan (strict class-1 absent)"
+    else:
+        assert folded_liver_dice > strict_class1_dice, (
+            f"Expected folded {folded_liver_dice} > strict {strict_class1_dice}"
         )
+
+    # More concretely: folded liver Dice should be 1.0 (model predicts class-2,
+    # gt >= 1 covers all non-background, model argmax >= 1 covers all voxels)
+    import pytest
+
+    assert folded_liver_dice == pytest.approx(1.0), (
+        f"Expected folded liver_per_case=1.0, got {folded_liver_dice}"
+    )
+
+
+def test_tumor_metrics_unchanged_by_liver_fold() -> None:
+    """
+    tumor_per_case and tumor_global must reflect strict class-2 Dice,
+    unaffected by the liver-fold change.
+
+    Construct: target with class-1 and class-2 voxels; model predicts class 2
+    everywhere.  Compute tumor metrics via evaluate() and compare against
+    strict class-2 Dice computed inline.
+    """
+    import math
+
+    import pytest
+
+    images = torch.randn(1, 1, 2, 2, 2)
+    targets = torch.zeros(1, 1, 2, 2, 2, dtype=torch.long)
+    targets[0, 0, 0, :, :] = 1  # 4 liver voxels
+    targets[0, 0, 1, :, :] = 2  # 4 tumor voxels
+    val_loader = DataLoader(TensorDataset(images, targets), batch_size=1)
+
+    model = _TumorModel()  # predicts class 2 everywhere
+    device = torch.device("cpu")
+
+    result = evaluate(model, device, val_loader)
+
+    # Compute strict tumor reference via dice_per_case (strict per-class)
+    logits = model(images)
+    targets_squeezed = targets.squeeze(1)
+    strict_scores = dice_per_case(logits, targets_squeezed, num_classes=3)
+    strict_tumor_per_case = float(strict_scores[2].item())
+
+    strict_gl_scores = dice_global(logits, targets_squeezed, num_classes=3)
+    strict_tumor_global = float(strict_gl_scores[2].item())
+
+    tumor_per_case = result["tumor_per_case"]
+    tumor_global = result["tumor_global"]
+
+    # tumor_per_case should match strict class-2
+    if math.isnan(strict_tumor_per_case):
+        assert math.isnan(tumor_per_case), f"Expected tumor_per_case=nan, got {tumor_per_case}"
+    else:
+        assert tumor_per_case == pytest.approx(strict_tumor_per_case, abs=1e-6), (
+            f"tumor_per_case {tumor_per_case} != strict {strict_tumor_per_case}"
+        )
+
+    # tumor_global should match strict class-2
+    assert tumor_global == pytest.approx(strict_tumor_global, abs=1e-6), (
+        f"tumor_global {tumor_global} != strict {strict_tumor_global}"
+    )

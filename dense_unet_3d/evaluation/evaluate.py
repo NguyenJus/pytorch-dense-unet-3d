@@ -1,9 +1,36 @@
 """
 Evaluation on the validation split.
 
-Computes per-case and global Dice for liver (class 1) and tumor (class 2)
-using the val_loader.  Returns a structured dict so callers can log or
-display the metrics cleanly.
+Computes per-case and global Dice for liver and tumor using the val_loader.
+Returns a structured dict so callers can log or display the metrics cleanly.
+
+Liver convention (folded, issue #6)
+------------------------------------
+``liver_*`` metrics use **folded** liver masks: liver = liver ∪ tumor.
+- GT liver mask:   ``target >= 1``
+- Pred liver mask: ``argmax(logits) >= 1``
+
+This means both true liver (class 1) and tumor (class 2) voxels are counted
+as "liver" for the purpose of the liver metric, which matches the clinical
+notion that tumor lies inside the liver.  Reference: issue #6.
+
+Tumor convention (strict)
+--------------------------
+``tumor_*`` metrics use strict class-2 masks: ``target == 2``,
+``argmax(logits) == 2``.  The fold does not affect tumor Dice.
+
+Per-case convention (presence-aware, issue #4)
+----------------------------------------------
+A volume counts toward a metric's per-case mean only when the relevant class
+is present in GT **OR** prediction for that volume.  Both-empty volumes are
+excluded.  If a class is absent from every volume (GT and pred both empty
+everywhere), its per-case score is ``float('nan')`` — an explicit "no
+evidence" signal.
+
+Global convention (unchanged)
+------------------------------
+Intersection and union are accumulated across all voxels; the empty-class
+convention (denom == 0 → 1.0) applies to the global path only.
 
 Usage
 -----
@@ -17,7 +44,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from dense_unet_3d.evaluation.dice_score import _binary_dice, _to_binary_masks
+from dense_unet_3d.evaluation.dice_score import _binary_dice
 
 NUM_CLASSES = 3  # 0=background, 1=liver, 2=tumor
 
@@ -61,14 +88,32 @@ def evaluate(
 
     # Streaming aggregates — never hold all batches' full logits at once.
     #
-    # per_case: accumulate the sum of per-volume binary-Dice scalars and the
-    #   volume count, then finalise as sum / n_volumes (mirrors dice_per_case).
-    # global: accumulate per-class intersection and denominator (|A|+|B|) voxel
-    #   counts across every volume, then finalise the single ratio at the end
-    #   with the empty-class convention (denom == 0 → 1.0) (mirrors dice_global).
-    pc_sum = torch.zeros(NUM_CLASSES, dtype=torch.float64)
-    gl_inter = torch.zeros(NUM_CLASSES, dtype=torch.float64)
-    gl_denom = torch.zeros(NUM_CLASSES, dtype=torch.float64)
+    # Two separate binary metrics are accumulated:
+    #
+    # Liver (folded, issue #6):
+    #   pred_liver = argmax(logits) >= 1  (liver ∪ tumor in prediction)
+    #   gt_liver   = target >= 1          (liver ∪ tumor in ground truth)
+    #   Presence-aware per-case (§2.4): include volume when gt_liver.any() OR
+    #   pred_liver.any(). Finalise as liver_pc_sum / liver_pc_count if count>0,
+    #   else nan (§2.5).
+    #
+    # Tumor (strict class 2):
+    #   pred_tumor = argmax(logits) == 2
+    #   gt_tumor   = target == 2
+    #   Presence-aware per-case (§2.4/§2.5) — identical logic, strict class 2.
+    #
+    # Global path (unchanged): accumulate intersection and denom across all voxels;
+    #   empty-class convention (denom == 0 → 1.0) applied at finalisation.
+    liver_pc_sum: float = 0.0
+    liver_pc_count: int = 0
+    tumor_pc_sum: float = 0.0
+    tumor_pc_count: int = 0
+
+    liver_gl_inter: float = 0.0
+    liver_gl_denom: float = 0.0
+    tumor_gl_inter: float = 0.0
+    tumor_gl_denom: float = 0.0
+
     n_volumes = 0
 
     with torch.no_grad():
@@ -82,19 +127,39 @@ def evaluate(
             logits = model(volume).cpu()  # (N, 3, D, H, W)
             target = target.cpu()
 
-            pred_masks, gt_masks = _to_binary_masks(logits, target, NUM_CLASSES)
+            hard_pred = logits.argmax(dim=1)  # (N, D, H, W)
+
+            # Folded liver masks: liver ∪ tumor (issue #6)
+            pred_liver_batch = (hard_pred >= 1).float()  # (N, D, H, W)
+            gt_liver_batch = (target >= 1).float()  # (N, D, H, W)
+
+            # Strict tumor masks: class 2 only
+            pred_tumor_batch = (hard_pred == 2).float()  # (N, D, H, W)
+            gt_tumor_batch = (target == 2).float()  # (N, D, H, W)
+
             n = logits.shape[0]
             n_volumes += n
 
-            for c in range(NUM_CLASSES):
-                for i in range(n):
-                    # per-case scalar (applies empty-class convention internally)
-                    pc_sum[c] += _binary_dice(pred_masks[i, c].float(), gt_masks[i, c].float())
-                # global counts accumulated across all voxels/volumes
-                pred_c = pred_masks[:, c].float()
-                gt_c = gt_masks[:, c].float()
-                gl_inter[c] += (pred_c * gt_c).sum().item()
-                gl_denom[c] += pred_c.sum().item() + gt_c.sum().item()
+            for i in range(n):
+                # Liver (folded) — per-volume presence-aware
+                pl = pred_liver_batch[i]
+                gl_ = gt_liver_batch[i]
+                if pl.any() or gl_.any():
+                    liver_pc_sum += _binary_dice(pl, gl_)
+                    liver_pc_count += 1
+
+                # Tumor (strict) — per-volume presence-aware
+                pt = pred_tumor_batch[i]
+                gt_ = gt_tumor_batch[i]
+                if pt.any() or gt_.any():
+                    tumor_pc_sum += _binary_dice(pt, gt_)
+                    tumor_pc_count += 1
+
+            # Global accumulation across all voxels in the batch
+            liver_gl_inter += (pred_liver_batch * gt_liver_batch).sum().item()
+            liver_gl_denom += pred_liver_batch.sum().item() + gt_liver_batch.sum().item()
+            tumor_gl_inter += (pred_tumor_batch * gt_tumor_batch).sum().item()
+            tumor_gl_denom += pred_tumor_batch.sum().item() + gt_tumor_batch.sum().item()
 
     if n_volumes == 0:
         raise ValueError(
@@ -102,17 +167,17 @@ def evaluate(
             "empty validation set.  Check that the val DataLoader is non-empty."
         )
 
-    pc = pc_sum / n_volumes
-    gl = torch.zeros(NUM_CLASSES, dtype=torch.float64)
-    for c in range(NUM_CLASSES):
-        if gl_denom[c] == 0:
-            gl[c] = 1.0
-        else:
-            gl[c] = 2.0 * gl_inter[c] / gl_denom[c]
+    # Finalise per-case: nan when a class is absent from every volume (§2.5)
+    liver_pc = liver_pc_sum / liver_pc_count if liver_pc_count > 0 else float("nan")
+    tumor_pc = tumor_pc_sum / tumor_pc_count if tumor_pc_count > 0 else float("nan")
+
+    # Finalise global: empty-class convention (denom == 0 → 1.0)
+    liver_gl = (2.0 * liver_gl_inter / liver_gl_denom) if liver_gl_denom > 0 else 1.0
+    tumor_gl = (2.0 * tumor_gl_inter / tumor_gl_denom) if tumor_gl_denom > 0 else 1.0
 
     return {
-        "liver_per_case": float(pc[1].item()),
-        "liver_global": float(gl[1].item()),
-        "tumor_per_case": float(pc[2].item()),
-        "tumor_global": float(gl[2].item()),
+        "liver_per_case": float(liver_pc),
+        "liver_global": float(liver_gl),
+        "tumor_per_case": float(tumor_pc),
+        "tumor_global": float(tumor_gl),
     }

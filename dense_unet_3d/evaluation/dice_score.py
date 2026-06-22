@@ -5,25 +5,34 @@ Formula
 -------
     Dice(A, B) = 2 |A ∩ B| / (|A| + |B|)
 
-Empty-class convention
-----------------------
-When BOTH the prediction mask (A) and the ground-truth mask (B) are empty for a
-given class in a given volume, Dice is defined as **1.0** for that class/volume
-pair.  This reflects the interpretation that a model that correctly predicts the
-absence of a class should not be penalised.  The convention is applied
-per-class, per-volume before any aggregation step.
-
 Two aggregation modes
 ---------------------
-dice_per_case
-    Compute Dice independently for every (volume, class) pair, then average
-    across volumes.  A class that is absent from a single volume but present in
-    others still contributes its per-case score to the mean.
+dice_per_case  (presence-aware)
+    Compute Dice independently for every (volume, class) pair, but only
+    include a volume in class c's average when class c is **present in GT
+    OR prediction** for that volume (``gt_mask.any() or pred_mask.any()``).
 
-dice_global
+    Rationale: a volume where a class is absent from both the ground-truth
+    and the prediction carries no information about that class.  Including
+    it and scoring it 1.0 (the global empty-class convention) would silently
+    inflate the per-case metric — a model that never predicts tumor could
+    appear perfect if most validation volumes contain no tumor.
+
+    NaN-for-absent-class: if a class is absent from ALL volumes in the
+    batch (neither GT nor prediction contains it anywhere), the denominator
+    is zero and the per-case score is defined as ``float('nan')``.  This is
+    an explicit "no evidence" signal; downstream callers must handle it
+    deliberately (e.g. via ``numpy.nanmean``).
+
+    Specifically: hallucination (empty-GT, non-empty-pred) and miss
+    (non-empty-GT, empty-pred) both count and contribute Dice = 0.0.
+
+dice_global  (unchanged — voxel-pooled, empty→1.0)
     Accumulate intersection and union counts across **all** voxels in the
     entire dataset, then compute the single ratio.  Volumes with many voxels
     dominate.  This matches the "global Dice" reported in Alalwan et al. (2021).
+    The empty-class convention (returns 1.0 when global denom is 0) is retained
+    for the global path.
 
 The two measures can—and often will—differ on multi-case datasets.  See
 tests/evaluation/test_dice_score.py for a constructed example that proves this.
@@ -83,11 +92,11 @@ def _to_binary_masks(preds: Tensor, targets: Tensor, num_classes: int) -> tuple[
 
 def dice_per_case(preds: Tensor, targets: Tensor, num_classes: int) -> Tensor:
     """
-    Mean per-case Dice score, averaged over volumes.
+    Presence-aware mean per-case Dice score.
 
-    For each volume n and class c, compute Dice(pred_n_c, gt_n_c) applying the
-    empty-class convention (Dice=1.0 when both masks are empty).  Then average
-    over the N volumes.
+    For each class c, only volumes where the class is present in GT OR
+    prediction are included in the average.  Both-empty volumes are excluded.
+    If a class is absent from every volume, the score is ``float('nan')``.
 
     Parameters
     ----------
@@ -97,16 +106,22 @@ def dice_per_case(preds: Tensor, targets: Tensor, num_classes: int) -> Tensor:
 
     Returns
     -------
-    Tensor of shape (C,) — one mean Dice per class.
+    Tensor of shape (C,) — one mean Dice per class; ``nan`` when a class is
+    absent from all volumes (GT and prediction both empty everywhere).
     """
     pred_masks, gt_masks = _to_binary_masks(preds, targets, num_classes)
     n = preds.shape[0]
-    scores = torch.zeros(num_classes, dtype=torch.float32)
+    scores = torch.full((num_classes,), float("nan"), dtype=torch.float32)
     for c in range(num_classes):
-        class_scores = [
-            _binary_dice(pred_masks[i, c].float(), gt_masks[i, c].float()) for i in range(n)
-        ]
-        scores[c] = sum(class_scores) / n
+        included_scores: list[float] = []
+        for i in range(n):
+            pm = pred_masks[i, c].float()
+            gm = gt_masks[i, c].float()
+            # Presence-aware: include volume only if class present in GT or pred
+            if pm.any() or gm.any():
+                included_scores.append(_binary_dice(pm, gm))
+        if included_scores:
+            scores[c] = sum(included_scores) / len(included_scores)
     return scores
 
 

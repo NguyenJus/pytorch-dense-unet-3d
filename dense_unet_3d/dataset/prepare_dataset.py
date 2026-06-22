@@ -1,6 +1,3 @@
-import math
-import random
-
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
@@ -10,37 +7,6 @@ from dense_unet_3d.dataset.transforms.RandomHorizontalFlip import RandomHorizont
 from dense_unet_3d.dataset.transforms.ReshapeTensor import ReshapeTensor
 from dense_unet_3d.dataset.transforms.Resize import Resize
 from dense_unet_3d.dataset.transforms.ScaleAndPadOrCrop import ScaleAndPadOrCrop
-
-
-def make_split(
-    volume_ids: list[str],
-    val_fraction: float = 0.2,
-    seed: int = 42,
-) -> tuple[list[str], list[str]]:
-    """Return a deterministic (train, val) partition of *volume_ids*.
-
-    The split is reproducible for a given *seed*: calling this function twice
-    with the same arguments always produces identical lists.  The original
-    list order is preserved after shuffling so the result depends only on the
-    seed, not on any external randomness.
-
-    Args:
-        volume_ids:   Sequence of volume identifier strings to split.
-        val_fraction: Fraction of volumes assigned to validation (default 0.2).
-        seed:         Integer seed for the shuffle RNG.
-
-    Returns:
-        A ``(train_ids, val_ids)`` tuple of lists; both together form a
-        partition of *volume_ids* (disjoint, union = all).
-    """
-    shuffled = list(volume_ids)
-    rng = random.Random(seed)
-    rng.shuffle(shuffled)
-
-    n_val = math.ceil(len(shuffled) * val_fraction)
-    val_ids = shuffled[:n_val]
-    train_ids = shuffled[n_val:]
-    return train_ids, val_ids
 
 
 def compose_transforms(config: dict, train: bool = True) -> dict:
@@ -119,6 +85,12 @@ def prepare_dataset(config: dict, train: bool) -> LITSDataset:
         img_dirs = config["pathing"]["train_img_dirs"]
     else:
         img_dirs = config["pathing"]["test_img_dirs"]
+        if img_dirs is None or len(img_dirs) == 0 or any(d is None for d in img_dirs):
+            raise ValueError(
+                "pathing.test_img_dirs must point to labeled volume directories for "
+                "non-dry-run evaluation, but it is unset or contains null entries. "
+                "Set pathing.test_img_dirs in your config to one or more valid directories."
+            )
 
     transform = compose_transforms(config, train=train)
     all_transforms = transform["all_transforms"]
