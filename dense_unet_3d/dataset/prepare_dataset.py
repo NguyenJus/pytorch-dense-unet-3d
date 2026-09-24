@@ -4,7 +4,7 @@ from typing import Any
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-from dense_unet_3d.dataset.LITSDataset import LITSDataset, _case_id, discover_pairs
+from dense_unet_3d.dataset.LITSDataset import LITSDataset, _case_id, discover_pairs, preflight_pairs
 from dense_unet_3d.dataset.transforms.ClampValues import ClampValues
 from dense_unet_3d.dataset.transforms.RandomHorizontalFlip import RandomHorizontalFlip
 from dense_unet_3d.dataset.transforms.ReshapeTensor import ReshapeTensor
@@ -72,6 +72,68 @@ def compose_transforms(config: dict, train: bool = True) -> dict:
         "mask_transforms": transforms.Compose(mask_transforms),
         "paired_transforms": transforms.Compose(paired_transforms),
     }
+
+
+def preflight_config(config: dict, *, full_decode: bool = False) -> dict[str, int]:
+    """Validate every configured training and validation pair before training.
+
+    This deliberately operates on raw NIfTI pairs, before data loaders, models,
+    or CUDA are created.  ``full_decode`` adds segmentation-label validation;
+    header-only checks are useful for a fast standalone audit.
+    """
+    pathing = config["pathing"]
+    train_dirs = pathing.get("train_img_dirs")
+    test_dirs = pathing.get("test_img_dirs")
+    if (
+        not isinstance(train_dirs, list)
+        or not train_dirs
+        or any(not isinstance(directory, str) or not directory for directory in train_dirs)
+    ):
+        raise ValueError("pathing.train_img_dirs must contain one or more non-empty directories")
+    if (
+        not isinstance(test_dirs, list)
+        or not test_dirs
+        or any(not isinstance(directory, str) or not directory for directory in test_dirs)
+    ):
+        raise ValueError("pathing.test_img_dirs must contain one or more non-empty directories")
+
+    splits = (
+        ("train", "training split", train_dirs),
+        ("validation", "validation split", test_dirs),
+    )
+    discovered: dict[str, list[tuple[str, str]]] = {}
+    counts: dict[str, int] = {}
+    errors: list[str] = []
+    for key, split_name, directories in splits:
+        try:
+            discovered[key] = discover_pairs(directories)
+        except ValueError as exc:
+            errors.append(f"{split_name} discovery failed: {exc}")
+
+    if "train" in discovered and "validation" in discovered:
+        train_pairs = discovered["train"]
+        test_pairs = discovered["validation"]
+        train_paths = {os.path.realpath(volume) for volume, _segmentation in train_pairs}
+        test_paths = {os.path.realpath(volume) for volume, _segmentation in test_pairs}
+        train_case_ids = {_case_id(volume, "volume") for volume, _segmentation in train_pairs}
+        test_case_ids = {_case_id(volume, "volume") for volume, _segmentation in test_pairs}
+        if train_paths & test_paths or train_case_ids & test_case_ids:
+            errors.append(
+                "train_img_dirs and test_img_dirs overlap; validation data would leak into training"
+            )
+
+    for key, split_name, _directories in splits:
+        if key not in discovered:
+            continue
+        try:
+            counts[key] = preflight_pairs(
+                discovered[key], full_decode=full_decode, split_name=split_name
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+    if errors:
+        raise ValueError("configured-split preflight failed:\n" + "\n".join(errors))
+    return counts
 
 
 def prepare_dataset(

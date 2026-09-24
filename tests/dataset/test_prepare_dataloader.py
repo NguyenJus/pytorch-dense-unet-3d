@@ -18,7 +18,11 @@ import pytest
 import torch
 from torch.utils.data import RandomSampler, SequentialSampler
 
-from dense_unet_3d.dataset.prepare_dataset import compose_transforms, prepare_dataloader
+from dense_unet_3d.dataset.prepare_dataset import (
+    compose_transforms,
+    preflight_config,
+    prepare_dataloader,
+)
 from dense_unet_3d.dataset.transforms.RandomHorizontalFlip import RandomHorizontalFlip
 from dense_unet_3d.dataset.transforms.ScaleAndPadOrCrop import ScaleAndPadOrCrop
 
@@ -163,3 +167,21 @@ class TestValLoaderFromTestDirs:
         _write_nifti(tmp_path / "segmentation0.nii", seg)
         with pytest.raises(ValueError, match="overlap|leak"):
             prepare_dataloader(_config(str(tmp_path)), train=False)
+
+
+class TestPreflightConfig:
+    def test_checks_both_splits_before_loader_or_model_creation(self, tmp_path: Path) -> None:
+        train_dir = tmp_path / "train"
+        validation_dir = tmp_path / "validation"
+        train_dir.mkdir()
+        validation_dir.mkdir()
+        volume = np.zeros((8, 6, 4), dtype=np.float32)
+        segmentation = np.zeros((8, 6, 4), dtype=np.int16)
+        _write_nifti(train_dir / "volume0.nii", volume)
+        _write_nifti(train_dir / "segmentation0.nii", segmentation)
+        _write_nifti(validation_dir / "volume1.nii", volume)
+        _write_nifti(validation_dir / "segmentation1.nii", segmentation)
+
+        cfg = _config(str(train_dir))
+        cfg["pathing"]["test_img_dirs"] = [str(validation_dir)]
+        assert preflight_config(cfg) == {"train": 1, "validation": 1}

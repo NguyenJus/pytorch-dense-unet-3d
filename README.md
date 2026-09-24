@@ -52,6 +52,17 @@ Runs the cascaded 2-phase training schedule (Phase A: 100 epochs × 10 steps;
 Phase B: reload best checkpoint, 1000 epochs × 10 steps).
 Checkpoints are written to the path specified in `config.yaml`.
 
+### Preflight
+
+```bash
+dense-unet-3d preflight --config config.yaml
+```
+
+Audits every training and validation NIfTI header without creating a model or
+using CUDA. Add `--full-decode` to also read CT and mask voxels, reject
+non-finite CT values, and verify mask labels are integers in `{0, 1, 2}`.
+Training runs this full-decode preflight automatically before model creation.
+
 ### Evaluate
 
 ```bash
