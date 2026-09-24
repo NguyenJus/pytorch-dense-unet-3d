@@ -21,3 +21,6 @@ models/*
 
 # Brainstorm/spec scaffolding (durable findings live in docs/research/)
 docs/specs/
+
+# Reference papers (copyrighted, local only)
+docs/papers/
