@@ -145,6 +145,23 @@ class TestLen:
         ds = LITSDataset(img_dirs=[str(tmp_path)])
         assert len(ds) == 2
 
+    def test_missing_segmentation_is_rejected_without_mispairing(self, tmp_path: Path) -> None:
+        """A missing middle case must not shift later sorted paths into a wrong pair."""
+        vol = np.zeros((8, 6, 4), dtype=np.float32)
+        seg = np.zeros((8, 6, 4), dtype=np.int16)
+        _write_nifti(tmp_path / "volume-0.nii", vol)
+        _write_nifti(tmp_path / "volume-1.nii", vol)
+        _write_nifti(tmp_path / "segmentation-0.nii", seg)
+        with pytest.raises(ValueError, match="case IDs do not match|missing segmentations"):
+            LITSDataset(img_dirs=[str(tmp_path)])
+
+    def test_mismatched_image_mask_grids_are_rejected(self, tmp_path: Path) -> None:
+        """Spatially different paired NIfTIs cannot be trained as aligned voxels."""
+        _write_nifti(tmp_path / "volume0.nii", np.zeros((8, 6, 4), dtype=np.float32))
+        _write_nifti(tmp_path / "segmentation0.nii", np.zeros((8, 6, 3), dtype=np.int16))
+        with pytest.raises(ValueError, match="shape mismatch"):
+            LITSDataset(img_dirs=[str(tmp_path)])[0]
+
 
 # ---------------------------------------------------------------------------
 # LITSDataset.__getitem__
@@ -190,6 +207,37 @@ class TestGetItem:
         assert image.shape[0] == 1
         assert image.shape[2] == 224
         assert image.shape[3] == 224
+
+    def test_full_pipeline_preserves_nifti_depth_axis(self, tmp_path: Path) -> None:
+        """The full deterministic pipeline converts raw HWD once to CDHW."""
+        from dense_unet_3d.dataset.prepare_dataset import compose_transforms
+
+        h, w, d = 3, 4, 5
+        vol = np.zeros((h, w, d), dtype=np.float32)
+        seg = np.zeros((h, w, d), dtype=np.int16)
+        for depth in range(d):
+            vol[:, :, depth] = depth + 1
+        _write_nifti(tmp_path / "volume0.nii", vol)
+        _write_nifti(tmp_path / "segmentation0.nii", seg)
+        transform = compose_transforms(
+            {
+                "dataset": {
+                    "clamp_hu": False,
+                    "resize_img": False,
+                    "random_hflip": False,
+                    "scale_img": False,
+                }
+            },
+            train=False,
+        )
+        image, _mask = LITSDataset(
+            img_dirs=[str(tmp_path)],
+            transform=transform["all_transforms"],
+            mask_transform=transform["mask_transforms"],
+        )[0]
+        assert image.shape == (1, d, h, w)
+        for depth in range(d):
+            assert torch.all(image[0, depth] == depth + 1)
 
 
 # ---------------------------------------------------------------------------

@@ -13,10 +13,10 @@ Design note
 The criterion is a plain nn.CrossEntropyLoss with a weight= tensor.  Class
 weights are read from ``config["training"]["class_weights"]`` (keys
 ``background`` / ``liver`` / ``lesion`` -> class indices 0 / 1 / 2), falling
-back to the defaults below when the key is absent.  The weight tensor is moved
-to *device* inside get_criterion() so the caller never needs to .to() the
-criterion object itself.  This is the standard pattern; .to(criterion) is
-non-standard and was a confirmed bug in the original training loop (§4).
+back to the defaults below when the key is absent. The weight tensor is moved
+to *device* inside get_criterion() so callers can use the criterion directly.
+Calling ``criterion.to(device)`` is also valid for PyTorch modules, but is not
+needed when the weight is constructed on the target device.
 """
 
 from __future__ import annotations
@@ -47,14 +47,12 @@ def get_criterion(
         key is absent, the module-level defaults ``[0.2, 1.2, 2.2]`` are used.
     device:
         Target device for the weight tensor (typically the model/logits
-        device).  Defaults to CPU.  The criterion module itself is never
-        .to()-moved — only the weight tensor.
+        device). Defaults to CPU.
 
     Returns
     -------
     nn.CrossEntropyLoss
-        Criterion with weight tensor on *device*.  Do NOT call .to(device) on
-        the returned criterion.
+        Criterion with weight tensor on *device*.
     """
     class_weights = config.get("training", {}).get("class_weights")
     if class_weights is None:

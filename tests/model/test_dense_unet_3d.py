@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+import dense_unet_3d.model.DenseUNet3d as denseunet_module
 from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
 
 # Lower bound / upper bound for ~3.6M +/- 15%.
@@ -22,6 +23,7 @@ from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
 # docs/research/2026-06-21-denseunet569-architecture-decisions.md
 PARAM_LOWER: int = 3_060_000
 PARAM_UPPER: int = 4_140_000
+FULL_DEPTH_RECONSTRUCTION_PARAMS: int = 10_795_323
 
 
 @pytest.fixture()
@@ -38,6 +40,18 @@ def test_output_shape_exact(model: DenseUNet3d) -> None:
     assert out.shape == (2, 3, 12, 224, 224), f"Got {tuple(out.shape)}"
 
 
+@pytest.mark.parametrize(
+    "shape",
+    [(1, 1, 11, 224, 224), (1, 2, 12, 224, 224), (1, 12, 224, 224)],
+)
+def test_rejects_input_outside_fixed_spatial_contract(
+    model: DenseUNet3d, shape: tuple[int, ...]
+) -> None:
+    """The fixed decoder targets require NCDHW input (N, 1, 12, 224, 224)."""
+    with pytest.raises(ValueError, match="NCDHW input"):
+        model(torch.randn(*shape))
+
+
 def test_param_count_within_band(model: DenseUNet3d) -> None:
     """Trainable params within 3.06M - 4.14M. Prints the actual count."""
     total = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -45,6 +59,19 @@ def test_param_count_within_band(model: DenseUNet3d) -> None:
     assert PARAM_LOWER <= total <= PARAM_UPPER, (
         f"Param count {total:,} outside band [{PARAM_LOWER:,}, {PARAM_UPPER:,}]"
     )
+
+
+def test_full_depth_reconstruction_parameter_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the count for this codebase's full-depth reconstruction.
+
+    This is a construction-only check. It does not claim to reproduce the
+    paper's TensorFlow/Keras implementation, whose channel propagation and
+    decoder details are underspecified.
+    """
+    monkeypatch.setattr(denseunet_module, "_BLOCK_COUNTS", (4, 12, 24, 36))
+    full_depth = denseunet_module.DenseUNet3d()
+    total = sum(p.numel() for p in full_depth.parameters() if p.requires_grad)
+    assert total == FULL_DEPTH_RECONSTRUCTION_PARAMS
 
 
 def test_intermediate_spatial_dims_match_paper(model: DenseUNet3d) -> None:

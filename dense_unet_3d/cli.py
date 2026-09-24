@@ -213,22 +213,38 @@ def _cmd_predict(args: argparse.Namespace) -> None:
 
     # Load the input NIfTI volume.
     input_img: nib.nifti1.Nifti1Image = nib.load(args.input)  # type: ignore[assignment]
+    if len(input_img.shape) != 3:
+        raise ValueError(f"predict expects a 3-D NIfTI volume, got shape {input_img.shape}")
     affine = input_img.affine
     data: np.ndarray[Any, Any] = input_img.get_fdata(dtype=np.float32)  # (H, W, D)
 
-    # Clamp HU values to [-200, 250] (paper preprocessing).
-    data = np.clip(data, -200.0, 250.0)
+    # Mirror the deterministic training preprocessing.  Defaults retain the
+    # documented model contract for minimal inference-only config files.
+    dataset_config = config.get("dataset", {})
+    if dataset_config.get("clamp_hu", True):
+        clamp_range = dataset_config.get("clamp_hu_range", {})
+        data = np.clip(
+            data,
+            float(clamp_range.get("min", -200.0)),
+            float(clamp_range.get("max", 250.0)),
+        )
 
     # Convert to NCDHW tensor: (H, W, D) → (1, 1, D, H, W).
     volume = torch.from_numpy(data).permute(2, 0, 1).unsqueeze(0).unsqueeze(0).float()
     volume = volume.to(device)
 
-    # The model has a FIXED input contract of (D=12, H=224, W=224) — its decoder
-    # targets are hardcoded. Resize the input to that contract (trilinear, mirroring
-    # the dataset's Resize transform) before inference, then map the predicted LABEL
-    # volume back to the original spatial dims with nearest-neighbour interpolation
-    # (labels must NOT be interpolated continuously).
-    model_dhw = (12, 224, 224)
+    # Resize exactly as the deterministic image pipeline does, then map labels
+    # back with nearest-neighbour interpolation to retain the input geometry.
+    if not dataset_config.get("resize_img", True):
+        raise ValueError(
+            "predict requires dataset.resize_img=true because DenseUNet3d has a fixed spatial input contract"
+        )
+    resize_dims = dataset_config.get("resize_dims", {})
+    model_dhw = (
+        int(resize_dims.get("D", 12)),
+        int(resize_dims.get("H", 224)),
+        int(resize_dims.get("W", 224)),
+    )
     orig_dhw = (volume.shape[2], volume.shape[3], volume.shape[4])
     volume = F.interpolate(volume, size=model_dhw, mode="trilinear", align_corners=True)
 
@@ -246,7 +262,14 @@ def _cmd_predict(args: argparse.Namespace) -> None:
     # Back to NIfTI HWD order: (D, H, W) → (H, W, D).
     pred_hwd: np.ndarray[Any, Any] = np.transpose(pred_np, (1, 2, 0))
 
-    out_img = nib.Nifti1Image(pred_hwd, affine)
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+    header = input_img.header.copy()
+    header.set_data_dtype(np.int16)
+    out_img = nib.Nifti1Image(pred_hwd, affine, header=header)
+    qform, qform_code = input_img.get_qform(coded=True)
+    sform, sform_code = input_img.get_sform(coded=True)
+    out_img.set_qform(qform, int(qform_code))
+    out_img.set_sform(sform, int(sform_code))
     nib.save(out_img, args.output)
     sys.stdout.write(f"Segmentation saved to: {os.path.abspath(args.output)}\n")
 
@@ -260,7 +283,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dense-unet-3d",
         description=(
-            "3D-DenseUNet-569 — faithful medical image semantic segmentation. "
+            "3D-DenseUNet-569 — reduced-depth 3-D medical image segmentation. "
             "Use a subcommand: train, eval, or predict."
         ),
     )

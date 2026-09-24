@@ -14,6 +14,7 @@ from pathlib import Path
 
 import nibabel as nib
 import numpy as np
+import pytest
 from torch.utils.data import RandomSampler, SequentialSampler
 
 from dense_unet_3d.dataset.prepare_dataset import compose_transforms, prepare_dataloader
@@ -73,7 +74,9 @@ class TestValLoaderDeterministic:
         _write_nifti(tmp_path / "volume0.nii", vol)
         _write_nifti(tmp_path / "segmentation0.nii", seg)
 
-        loader = prepare_dataloader(_config(str(tmp_path)), train=False)
+        cfg = _config(str(tmp_path))
+        cfg["pathing"]["train_img_dirs"] = []
+        loader = prepare_dataloader(cfg, train=False)
         assert isinstance(loader.sampler, SequentialSampler), "val loader must not shuffle"
 
     def test_train_loader_shuffles(self, tmp_path: Path) -> None:
@@ -99,6 +102,8 @@ class TestValLoaderFromTestDirs:
 
         cfg = _config(str(tmp_path))
         cfg["pathing"]["test_img_dirs"] = [str(tmp_path)]
+        # This test covers construction/yielding, not leakage detection.
+        cfg["pathing"]["train_img_dirs"] = []
         loader = prepare_dataloader(cfg, train=False)
 
         batch = next(iter(loader))
@@ -109,8 +114,6 @@ class TestValLoaderFromTestDirs:
 
     def test_unset_test_dirs_raises_clear_value_error(self, tmp_path: Path) -> None:
         """prepare_dataloader(train=False) raises ValueError when test_img_dirs is None."""
-        import pytest
-
         cfg = _config(str(tmp_path))
 
         # Case 1: test_img_dirs is None
@@ -123,9 +126,7 @@ class TestValLoaderFromTestDirs:
         with pytest.raises(ValueError, match="pathing.test_img_dirs"):
             prepare_dataloader(cfg, train=False)
 
-        # Case 3: test_img_dirs mixes a null entry with a real dir — the null
-        # would crash LITSDataset with os.path.join(None, ...), so it must be
-        # rejected eagerly with the same clear error.
+        # Case 3: test_img_dirs mixes a null entry with a real dir.
         cfg["pathing"]["test_img_dirs"] = [None, str(tmp_path)]
         with pytest.raises(ValueError, match="pathing.test_img_dirs"):
             prepare_dataloader(cfg, train=False)
@@ -134,3 +135,12 @@ class TestValLoaderFromTestDirs:
         cfg["pathing"]["test_img_dirs"] = []
         with pytest.raises(ValueError, match="pathing.test_img_dirs"):
             prepare_dataloader(cfg, train=False)
+
+    def test_overlapping_train_and_val_dirs_raise(self, tmp_path: Path) -> None:
+        """The same labeled case cannot be used for both training and validation."""
+        vol = np.zeros((16, 12, 4), dtype=np.float32)
+        seg = np.zeros((16, 12, 4), dtype=np.int16)
+        _write_nifti(tmp_path / "volume0.nii", vol)
+        _write_nifti(tmp_path / "segmentation0.nii", seg)
+        with pytest.raises(ValueError, match="overlap|leak"):
+            prepare_dataloader(_config(str(tmp_path)), train=False)

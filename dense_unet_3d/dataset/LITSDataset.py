@@ -5,7 +5,6 @@ Labels: 0 = background, 1 = liver, 2 = tumour/lesion (as in the paper).
 
 from __future__ import annotations
 
-import glob
 import os
 from typing import Any, cast
 
@@ -14,6 +13,58 @@ import numpy as np
 import torch
 from nibabel.spatialimages import SpatialImage
 from torch.utils.data import Dataset
+
+
+def _case_id(path: str, prefix: str) -> str:
+    """Return the LiTS case suffix from a ``volume``/``segmentation`` path."""
+    name = os.path.basename(path)
+    for extension in (".nii.gz", ".nii"):
+        if name.endswith(extension):
+            name = name[: -len(extension)]
+            break
+    return name[len(prefix) :]
+
+
+def discover_pairs(img_dirs: list[str]) -> list[tuple[str, str]]:
+    """Discover and validate one segmentation for every volume, by case ID.
+
+    Sorting the two glob results independently is unsafe: a missing case shifts
+    every following image/mask pairing.  Pair by their shared filename suffix
+    instead and reject incomplete or duplicate datasets before training starts.
+    """
+    volumes: dict[str, str] = {}
+    segmentations: dict[str, str] = {}
+    for directory in img_dirs:
+        if not isinstance(directory, str) or not directory:
+            raise ValueError("dataset directories must be non-empty paths")
+        try:
+            entries = os.listdir(directory)
+        except OSError as exc:
+            raise ValueError(f"cannot read dataset directory: {directory}") from exc
+        for name in entries:
+            path = os.path.join(directory, name)
+            if not os.path.isfile(path) or not (name.endswith(".nii") or name.endswith(".nii.gz")):
+                continue
+            if name.startswith("volume"):
+                case_id = _case_id(path, "volume")
+                if case_id in volumes:
+                    raise ValueError(f"duplicate volume case ID {case_id!r}")
+                volumes[case_id] = path
+            elif name.startswith("segmentation"):
+                case_id = _case_id(path, "segmentation")
+                if case_id in segmentations:
+                    raise ValueError(f"duplicate segmentation case ID {case_id!r}")
+                segmentations[case_id] = path
+
+    missing_segmentations = sorted(set(volumes) - set(segmentations))
+    missing_volumes = sorted(set(segmentations) - set(volumes))
+    if missing_segmentations or missing_volumes:
+        raise ValueError(
+            "volume/segmentation case IDs do not match "
+            f"(missing segmentations: {missing_segmentations}; "
+            f"missing volumes: {missing_volumes})"
+        )
+    return [(volumes[case_id], segmentations[case_id]) for case_id in sorted(volumes)]
 
 
 class LITSDataset(Dataset):
@@ -50,13 +101,9 @@ class LITSDataset(Dataset):
         mask_transform: Any | None = None,
         paired_transform: Any | None = None,
     ) -> None:
-        self.volume_img_paths: list[str] = []
-        self.segmentation_img_paths: list[str] = []
-        for path in img_dirs:
-            self.volume_img_paths.extend(sorted(glob.glob(os.path.join(path, "volume*.nii"))))
-            self.segmentation_img_paths.extend(
-                sorted(glob.glob(os.path.join(path, "segmentation*.nii")))
-            )
+        pairs = discover_pairs(img_dirs)
+        self.volume_img_paths = [volume for volume, _segmentation in pairs]
+        self.segmentation_img_paths = [segmentation for _volume, segmentation in pairs]
 
         self.transform = transform
         # Mask-specific transform path (nearest-neighbour resize, no HU clamp).
@@ -135,17 +182,32 @@ class LITSDataset(Dataset):
         seg_img = cast(SpatialImage, nib.load(self.segmentation_img_paths[idx]))
         volume: np.ndarray = np.asarray(vol_img.get_fdata(), dtype=np.float32)
         segmentation: np.ndarray = np.asarray(seg_img.get_fdata(), dtype=np.float32)
+        if volume.shape != segmentation.shape:
+            raise ValueError(
+                f"image/mask shape mismatch for {self.volume_img_paths[idx]}: "
+                f"{volume.shape} != {segmentation.shape}"
+            )
+        if not np.allclose(vol_img.affine, seg_img.affine, rtol=0.0, atol=1e-5):
+            raise ValueError(
+                f"image/mask affine mismatch for {self.volume_img_paths[idx]}; "
+                "they are not on the same spatial grid"
+            )
+        if not np.all(np.isclose(segmentation, np.round(segmentation))) or not np.all(
+            (segmentation >= 0) & (segmentation <= 2)
+        ):
+            raise ValueError(
+                f"segmentation labels for {self.segmentation_img_paths[idx]} must be integers in {{0, 1, 2}}"
+            )
 
-        # Reorder to (D, H, W) for depth-first processing.
-        vol_arr: np.ndarray = np.transpose(volume, (2, 0, 1))
-        seg_arr: np.ndarray = np.transpose(segmentation, (2, 0, 1))
+        # Keep NIfTI's HWD order until ReshapeTensor converts it once to CDHW.
+        # Cropping operates depth-first, so temporarily transpose only for it.
+        vol_arr: np.ndarray = volume
+        seg_arr: np.ndarray = segmentation
 
         if self.crop_to_liver:
-            # find_liver returns (H, W, D) arrays.
-            vol_arr, seg_arr = self.find_liver((vol_arr, seg_arr))
-            # Bring back to (D, H, W).
-            vol_arr = np.transpose(vol_arr, (2, 0, 1))
-            seg_arr = np.transpose(seg_arr, (2, 0, 1))
+            vol_arr, seg_arr = self.find_liver(
+                (np.transpose(vol_arr, (2, 0, 1)), np.transpose(seg_arr, (2, 0, 1)))
+            )
 
         # Apply per-array transforms (may return ndarray or Tensor).
         vol_out: Any = vol_arr
@@ -161,9 +223,9 @@ class LITSDataset(Dataset):
 
         # Convert to tensors if not already done by transforms.
         if not isinstance(vol_out, torch.Tensor):
-            vol_out = torch.from_numpy(vol_out)
+            vol_out = torch.from_numpy(vol_out).permute(2, 0, 1).unsqueeze(0)
         if not isinstance(seg_out, torch.Tensor):
-            seg_out = torch.from_numpy(seg_out)
+            seg_out = torch.from_numpy(seg_out).permute(2, 0, 1).unsqueeze(0)
 
         # Ensure float32 image, long mask.
         image: torch.Tensor = vol_out.float()

@@ -5,7 +5,7 @@ Paper: Alalwan et al. (2021) §Training Scheme.
 Design (§6 F2)
 --------------
 Phase A: ``phase_a_epochs`` epochs, each epoch runs ``phase_a_steps_per_epoch``
-    steps over the dataloader (cycling as needed). At each epoch val Dice is
+    mini-batch updates (cycling over the dataloader as needed). At each epoch val Dice is
     computed; the epoch with the highest val Dice is saved as the ``best``
     checkpoint (plus a ``last`` checkpoint for the final epoch).
 
@@ -16,9 +16,8 @@ Phase B: Reload Phase A best weights into a fresh optimizer/scheduler, then
 "10 steps per epoch" interpretation
 ------------------------------------
 The paper states "each epoch = 10 steps/sub-epochs" without further definition.
-We treat one *step* as one full pass through the dataloader (i.e.
-``steps_per_epoch`` passes per epoch).  This is the LITERAL reading of the
-phrase "10 steps" — configurable via ``phase_a_steps_per_epoch`` and
+We treat one *step* as one mini-batch update, cycling through the dataloader
+as needed. This is configurable via ``phase_a_steps_per_epoch`` and
 ``phase_b_steps_per_epoch`` (default 10 each).
 
 See docs/research/2026-06-21-denseunet569-architecture-decisions.md for the
@@ -48,8 +47,6 @@ from __future__ import annotations
 
 import os
 import warnings
-from collections.abc import Iterator
-from itertools import islice
 from typing import Any
 
 import numpy as np
@@ -70,7 +67,7 @@ __all__ = [
     "run_cascaded_training",
 ]
 
-# Default steps per epoch — literal paper reading (§6 F2 decision record).
+# Default mini-batch updates per epoch; the paper leaves this interpretation underspecified.
 DEFAULT_STEPS_PER_EPOCH: int = 10
 
 
@@ -106,7 +103,9 @@ def save_checkpoint(
     metrics:
         Dictionary of evaluation metrics (e.g. ``{"val_dice": 0.85}``).
     """
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
     ckpt: dict[str, Any] = {
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
@@ -158,12 +157,6 @@ def load_checkpoint(
 # ---------------------------------------------------------------------------
 
 
-def _cycling_iter(loader: DataLoader) -> Iterator:
-    """Yield batches from *loader* indefinitely (cycle)."""
-    while True:
-        yield from loader
-
-
 def _run_epoch(
     *,
     config: dict[str, Any],
@@ -178,6 +171,11 @@ def _run_epoch(
     A *step* here means one mini-batch gradient update (not a full pass over
     the dataset).  We cycle through the loader as needed.
 
+    Raises
+    ------
+    ValueError
+        If a positive number of steps is requested from an empty loader.
+
     Returns
     -------
     float
@@ -191,7 +189,21 @@ def _run_epoch(
     # rebuild it per step inside the loop.
     criterion = get_criterion(config, device=device)
 
-    for volume, segmentation in islice(_cycling_iter(loader), steps_per_epoch):
+    batches = iter(loader)
+    for _ in range(steps_per_epoch):
+        try:
+            volume, segmentation = next(batches)
+        except StopIteration:
+            # Start another pass when more updates than batches are requested.
+            # A second immediate StopIteration identifies an empty loader;
+            # unlike ``islice(_cycling_iter(...))``, it cannot loop forever.
+            batches = iter(loader)
+            try:
+                volume, segmentation = next(batches)
+            except StopIteration as exc:
+                raise ValueError(
+                    "train_loader yielded no batches, so a training step cannot run."
+                ) from exc
         volume = volume.to(device, dtype=torch.float32)
         if segmentation.dim() == 5:
             segmentation = segmentation.squeeze(1)
@@ -207,6 +219,19 @@ def _run_epoch(
         count += 1
 
     return running_loss / count if count > 0 else 0.0
+
+
+def _validate_phase_schedule(total_epochs: int, steps_per_epoch: int, phase_name: str) -> None:
+    """Reject schedules that cannot satisfy the phase checkpoint contract."""
+    if total_epochs < 1:
+        raise ValueError(f"{phase_name}_epochs must be at least 1, got {total_epochs}.")
+    if steps_per_epoch < 1:
+        raise ValueError(f"{phase_name}_steps_per_epoch must be at least 1, got {steps_per_epoch}.")
+
+
+def _is_better_score(candidate: float, best: float) -> bool:
+    """Return whether a finite validation score strictly improves the best score."""
+    return np.isfinite(candidate) and candidate > best
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +275,7 @@ def run_phase_a(
     model_save_dir: str = config["pathing"]["model_save_dir"]
     phase_dir = os.path.join(model_save_dir, run_name, "phase_a")
     os.makedirs(phase_dir, exist_ok=True)
+    best_path = os.path.join(phase_dir, "best.pt")
 
     training_cfg = config["training"]
     total_epochs: int = training_cfg.get("phase_a_epochs", 100)
@@ -257,15 +283,17 @@ def run_phase_a(
         "phase_a_steps_per_epoch",
         training_cfg.get("steps_per_epoch", DEFAULT_STEPS_PER_EPOCH),
     )
+    _validate_phase_schedule(total_epochs, steps_per_epoch, "phase_a")
 
     model = model.to(device)
     optimizer = get_optimizer(model, config)
     scheduler = get_scheduler(optimizer, config)
 
     epoch_losses: list[float] = []
-    best_val_dice: float = -1.0
+    best_val_dice: float = float("-inf")
     best_epoch: int = 1
     best_metrics: dict[str, float] = {}
+    selected_best = False
 
     for epoch in tqdm(range(1, total_epochs + 1), desc="Phase A", position=0, leave=True):
         epoch_loss = _run_epoch(
@@ -296,12 +324,13 @@ def run_phase_a(
         tqdm.write(f"Phase A epoch {epoch}/{total_epochs}: loss={epoch_loss:.4f}")
 
         # Update best checkpoint (strict >: equal score keeps the earlier epoch).
-        if val_dice > best_val_dice:
+        if _is_better_score(val_dice, best_val_dice):
             best_val_dice = val_dice
             best_epoch = epoch
             best_metrics = metrics
+            selected_best = True
             save_checkpoint(
-                path=os.path.join(phase_dir, "best.pt"),
+                path=best_path,
                 model=model,
                 optimizer=optimizer,
                 scheduler=scheduler,
@@ -318,6 +347,11 @@ def run_phase_a(
         epoch=total_epochs,
         metrics=metrics,  # metrics from the final epoch
     )
+
+    if not selected_best:
+        raise ValueError(
+            "Phase A produced no finite validation selection score; no best checkpoint was saved."
+        )
 
     return {
         "epoch_losses": epoch_losses,
@@ -373,6 +407,7 @@ def run_phase_b(
     model_save_dir: str = config["pathing"]["model_save_dir"]
     phase_dir = os.path.join(model_save_dir, run_name, "phase_b")
     os.makedirs(phase_dir, exist_ok=True)
+    best_path = os.path.join(phase_dir, "best.pt")
 
     training_cfg = config["training"]
     total_epochs: int = training_cfg.get("phase_b_epochs", 1000)
@@ -380,6 +415,7 @@ def run_phase_b(
         "phase_b_steps_per_epoch",
         training_cfg.get("steps_per_epoch", DEFAULT_STEPS_PER_EPOCH),
     )
+    _validate_phase_schedule(total_epochs, steps_per_epoch, "phase_b")
 
     # Move model to device first so load_checkpoint maps to the right device.
     model = model.to(device)
@@ -394,9 +430,10 @@ def run_phase_b(
     model.load_state_dict(phase_a_ckpt["model_state_dict"])
 
     epoch_losses: list[float] = []
-    best_val_dice: float = -1.0
+    best_val_dice: float = float("-inf")
     best_epoch: int = 1
     best_metrics: dict[str, float] = {}
+    selected_best = False
 
     for epoch in tqdm(range(1, total_epochs + 1), desc="Phase B", position=0, leave=True):
         epoch_loss = _run_epoch(
@@ -436,12 +473,13 @@ def run_phase_b(
         tqdm.write(f"Phase B epoch {epoch}/{total_epochs}: loss={epoch_loss:.4f}")
 
         # Strict >: equal score keeps the earlier epoch; NaN is never better.
-        if val_dice > best_val_dice:
+        if _is_better_score(val_dice, best_val_dice):
             best_val_dice = val_dice
             best_epoch = epoch
             best_metrics = metrics
+            selected_best = True
             save_checkpoint(
-                path=os.path.join(phase_dir, "best.pt"),
+                path=best_path,
                 model=model,
                 optimizer=optimizer,
                 scheduler=scheduler,
@@ -458,6 +496,11 @@ def run_phase_b(
         epoch=total_epochs,
         metrics=metrics,
     )
+
+    if not selected_best:
+        raise ValueError(
+            "Phase B produced no finite validation selection score; no best checkpoint was saved."
+        )
 
     return {
         "epoch_losses": epoch_losses,

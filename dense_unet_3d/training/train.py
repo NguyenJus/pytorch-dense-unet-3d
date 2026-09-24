@@ -3,9 +3,8 @@
 Bug fixes (§4):
 - Scheduler None guard: both scheduler.step() and scheduler.state_dict() are
   guarded by ``if scheduler is not None``.
-- criterion.to(device) dropped: the weight tensor is moved to device inside
-  get_criterion() via loss.py (standard pattern); the criterion itself is never
-  .to()-moved.
+- Criterion weights are created directly on the requested device by
+  get_criterion(), avoiding an extra module transfer.
 - Loss counters initialised BEFORE the loop: ``running_loss = 0.0`` and
   ``num_batches = 0`` are set before the for-loop so an empty dataloader never
   raises NameError.  An empty loader returns 0.0 for that epoch's loss.
@@ -106,8 +105,8 @@ def train(
     1. ``scheduler.step()`` / ``scheduler.state_dict()`` are guarded with
        ``if scheduler is not None`` — prevents AttributeError when
        ``use_scheduler=False``.
-    2. ``criterion.to(device)`` is gone; the weight tensor is moved to device
-       inside ``get_criterion(logits)`` (see ``dense_unet_3d.training.loss``).
+    2. The criterion's class-weight tensor is created on ``device`` inside
+       ``get_criterion`` (see ``dense_unet_3d.training.loss``).
     3. ``running_loss = 0.0`` and ``num_batches = 0`` are initialised BEFORE
        the inner for-loop; an empty DataLoader returns 0.0 for that epoch
        instead of raising ``NameError: name 'i' is not defined``.
@@ -159,6 +158,12 @@ def train(
 
         for volume, segmentation in dataloader:
             volume = volume.to(device, dtype=torch.float32)
+            # Dataset loaders normally include a singleton channel dimension,
+            # but callers may already provide class indices as (N, D, H, W).
+            # Only remove the channel dimension when it actually exists: an
+            # unconditional ``squeeze(1)`` would remove depth for D == 1.
+            if segmentation.dim() == 5:
+                segmentation = segmentation.squeeze(1)
             segmentation = segmentation.to(device, dtype=torch.long)
 
             optimizer.zero_grad()
@@ -166,7 +171,7 @@ def train(
             logits = model(volume)
 
             # Reuse the criterion built once before the loop (no per-batch rebuild).
-            loss = criterion(logits, segmentation.squeeze(1))
+            loss = criterion(logits, segmentation)
 
             loss.backward()
             optimizer.step()

@@ -1,10 +1,9 @@
 """Full 3D-DenseUNet-569 assembly (Task C3).
 
-Faithful re-implementation of the encoder/decoder from Alalwan et al. (2021),
+Reduced-depth PyTorch reconstruction of the encoder/decoder described by Alalwan et al. (2021),
 "Efficient 3D Deep Learning Model for Medical Image Semantic Segmentation,"
-*Alexandria Engineering Journal* 60 (2021) 1231-1239. See the spec
-``docs/superpowers/specs/2026-06-21-faithful-3d-denseunet569-design.md`` §2/§3
-and the committed decision record
+*Alexandria Engineering Journal* 60 (2021) 1231-1239. See the committed
+architecture decision record
 ``docs/research/2026-06-21-denseunet569-architecture-decisions.md``.
 
 Architecture (NCDHW; spatial shown as D x H x W):
@@ -40,21 +39,22 @@ Design decisions (the §3 "knobs"), recorded for the G1 decision record:
   dense blocks and transitions. The two highest-resolution decoder blocks (up4,
   up5) restore depth 3->6->12 via the trilinear Upsample ``size=`` target.
 * Transition compression target: **0.5** (the paper's stated value, unchanged).
-  This lands the model comfortably inside the 3.06M-4.14M band, so no deviation
-  from 0.5 was required.
+  The local parameter target is met by reducing block counts, not compression.
 * Skip wiring (5 encoder levels feed the decoder): the decoder bottom is DB4 at
   7x7x3; each up-block takes its skip from the encoder level at the matching
   post-upsample resolution (DB3@14, DB2@28, DB1@56, stem@112). The 224x224x12
   level has no encoder feature, so up5 takes no skip (skip_channels=0).
 * Block counts: paper specifies (4,12,24,36) at 1:3:6:9 ratio.  Full-scale
-  yields ~10.8M params (outside 3.6M ±15% band) because the growing bottleneck
+  yields ~10.8M params (outside the repository's 3.6M ±15% band) because the growing bottleneck
   1×1×1 in each DenseLayer takes the full concatenated input (in_ch → 128).
   Using half-scale (2,6,12,18) preserves the ratio and achieves ~3.52M within
   [3.06M, 4.14M].  Decision recorded in
   ``docs/research/2026-06-21-denseunet569-architecture-decisions.md``.
-* Decoder convolutions: DS-Conv (depthwise 3×3×3 + pointwise 1×1×1) replaces
-  the dense 3×3×3 Conv3d, consistent with the paper's DS-Conv-throughout design.
-* Achieved trainable parameter count: ~3.52M, within the 3.6M +/- 15% band
+* Decoder convolutions: this implementation uses DS-Conv (depthwise 3×3×3 +
+  pointwise 1×1×1).  This is an efficiency deviation: Fig. 1 labels decoder
+  convolutions as Conv3D, while the paper explicitly limits its DS-Conv claim to
+  dense blocks.  See the research audit for the supporting citation.
+* Achieved trainable parameter count: ~3.52M, within the repository's 3.6M +/- 15% band
   (3,060,000 - 4,140,000). The exact value is asserted (and printed) by
   ``tests/model/test_dense_unet_3d.py::test_param_count_within_band``.
 """
@@ -73,11 +73,11 @@ from dense_unet_3d.model.building_blocks.UpsamplingBlock import UpsamplingBlock
 # Encoder hyper-parameters (paper §2/§3).
 _STEM_CHANNELS: int = 96
 _GROWTH: int = 32
-# AUTHORIZED DEVIATION: paper specifies (4, 12, 24, 36) at 1:3:6:9 ratio, but
-# with real dense connectivity (bottleneck 1×1×1: in_ch → 128) that yields
-# ~10.8M params — far outside the 3.6M ±15% target band.  These are HALF the
-# paper's counts (2, 6, 12, 18), preserving the 1:3:6:9 ratio and landing at
-# ~3.52M in [3.06M, 4.14M].  growth=32 and bottleneck=128 are UNCHANGED.
+# PROJECT DEVIATION: paper Fig. 1 specifies (4, 12, 24, 36) at a 1:3:6:9 ratio.
+# Under this reconstruction's real dense connectivity (bottleneck 1×1×1:
+# in_ch → 128), compression, and DS-Conv decoder mapping, that construction
+# has 10,795,323 parameters. These half counts preserve the ratio and produce
+# 3,523,643 parameters; they do not establish the authors' original mapping.
 # Decision record: docs/research/2026-06-21-denseunet569-architecture-decisions.md
 _BLOCK_COUNTS: tuple[int, int, int, int] = (2, 6, 12, 18)
 _COMPRESSION: float = 0.5
@@ -174,6 +174,11 @@ class DenseUNet3d(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Map ``(N, 1, 12, 224, 224)`` to ``(N, 3, 12, 224, 224)``."""
+        if x.ndim != 5 or tuple(x.shape[1:]) != (1, 12, 224, 224):
+            raise ValueError(
+                "DenseUNet3d requires NCDHW input with shape "
+                f"(N, 1, 12, 224, 224); got {tuple(x.shape)}"
+            )
         # Encoder, retaining the 4 skip tensors.
         stem = self.stem(x)  # 96   @ 112x112x6
         pooled = self.pool(stem)  # 96   @ 56x56x3

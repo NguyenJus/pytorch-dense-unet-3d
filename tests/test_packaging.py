@@ -155,8 +155,4 @@ def test_cli_passes_mypy() -> None:
         capture_output=True,
         text=True,
     )
-    # Filter to only errors that originate from cli.py itself (not transitively
-    # from imported modules that have their own pre-existing mypy issues).
-    cli_rel = str(cli_path.relative_to(ROOT))
-    errors = [line for line in result.stdout.splitlines() if "error:" in line and cli_rel in line]
-    assert not errors, "mypy errors in cli.py:\n" + "\n".join(errors)
+    assert result.returncode == 0, f"mypy failed:\n{result.stdout}\n{result.stderr}"

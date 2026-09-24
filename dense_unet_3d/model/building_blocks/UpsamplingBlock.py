@@ -1,9 +1,9 @@
 """Upsampling block for the 3D-DenseUNet-569 decoder (Task C2).
 
 Uses a 3D depthwise-separable convolution (DS-Conv) in place of a dense
-3×3×3 Conv3d, consistent with the paper's DS-Conv-throughout design.  This
-reduces the decoder's parameter count from ~40M (dense 3×3×3) to ~2M,
-which is necessary to land the full model within the 3.6M ±15% budget.
+3×3×3 Conv3d. This is an implementation efficiency choice: the paper's Fig. 1
+labels decoder operations as Conv3D and only explicitly assigns DS-Conv to
+dense blocks. See docs/research/2026-09-23-repository-audit.md.
 """
 
 from typing import cast
