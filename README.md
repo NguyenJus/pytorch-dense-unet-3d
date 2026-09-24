@@ -2,7 +2,7 @@
 
 ### 5 years later, reimplemented and fixed. A checkpoint and improvements will come as I find the time.
 
-A paper-faithful PyTorch implementation of **3D-DenseUNet-569** from
+A reduced-depth PyTorch reconstruction of **3D-DenseUNet-569** from
 [Alalwan et al., *Alexandria Engineering Journal* 60 (2021) 1231–1239][paper],
 with architectural gap-fills from [Li et al., H-DenseUNet, arXiv:1709.07330][hdense].
 
@@ -34,6 +34,12 @@ only for the full training run.
 ## Usage
 
 The package installs a `dense-unet-3d` console entry point.
+Copy the supplied configuration before editing dataset and output paths:
+
+```bash
+cp dense_unet_3d/config.yaml config.yaml
+```
+
 All subcommands take `--config <path/to/config.yaml>`.
 
 ### Train
@@ -52,7 +58,7 @@ Checkpoints are written to the path specified in `config.yaml`.
 dense-unet-3d eval --config config.yaml --checkpoint <path/to/best.pt>
 ```
 
-Evaluates on the seeded 80/20 validation holdout and prints liver and tumor
+Evaluates on the configured validation directories and prints liver and tumor
 Dice scores (per-case and global).
 
 ### Predict
@@ -69,15 +75,14 @@ Runs inference on a single NIfTI volume and writes the predicted segmentation.
 ## Data setup
 
 1. Download the [LiTS-2017 dataset][lits] (131 labeled training volumes).
-2. Set `dataset_path` in `config.yaml` to point to your data directory.
+2. Set `pathing.train_img_dirs` in `dense_unet_3d/config.yaml` to one or more
+   directories holding labeled LiTS training volumes, and set
+   `pathing.test_img_dirs` to separate labeled validation directories.
 3. HU values are truncated to `[−200, 250]`; volumes are resized to
    `224×224×12`.
 
-The train/validation split is a **fixed, seeded 80/20 holdout** of the 131
-labeled volumes (approximately 105 train / 26 val), controlled by `split_seed`
-and `val_fraction` in `config.yaml`.
-The split is deterministic: the same seed always produces the same file lists,
-and the two sets are disjoint.
+Training and validation directories must be separate. Evaluation does not
+create a holdout split automatically.
 
 ---
 
@@ -85,47 +90,47 @@ and the two sets are disjoint.
 
 This repository ships a **reduced-depth variant**, not a literally 569-layer
 model.
-The name "DenseUNet-569" encodes the paper's full block counts (4, 12, 24, 36)
-and authoritative hyperparameters; the shipped implementation uses half-scale
+The paper gives block counts (4, 12, 24, 36); the shipped implementation uses half-scale
 block counts **(2, 6, 12, 18)** — preserving the paper's 1:3:6:9 ratio —
-while keeping all other authoritative values unchanged:
+while retaining the paper-stated encoder hyperparameters:
 
 - growth rate **g = 32** (authoritative, unchanged)
 - bottleneck **128** channels (authoritative, unchanged)
 - transition compression **0.5** (authoritative, unchanged)
 
-This achieves **3,523,643 trainable parameters**, within the paper's reported
-~3.6 M band (±15 % target: 3.06 M–4.14 M).
+This achieves **3,523,643 trainable parameters**, near the paper's reported
+~3.6 M total. The ±15 % acceptance band (3.06 M–4.14 M) was chosen by this
+repository; it is not a tolerance stated in the paper.
 
 **Why not the paper's (4, 12, 24, 36)?**
-The paper simultaneously states block counts (4, 12, 24, 36), growth rate 32,
-and a ~3.6 M / 8 GB GTX 1080 fit.
-These three claims are internally contradictory.
-Dense-block cost scales O(count² × growth) because each bottleneck 1×1×1 conv
-sees an ever-growing input channel count (96 + 32 × layer).
-At full depth with real dense connectivity and a DS-Conv decoder the total is
-**~10,795,323 parameters** — roughly 3× the reported figure.
-DB4's 36 bottleneck layers alone cost ~4.9 M params, already above the 4.14 M
-ceiling.
-No authorized lever bridges the gap: even absurd compression (0.0625) yields
-~5.1 M; the closest full-depth variant with compression + skip projection
-reaches ~5.7 M (still 1.6 M over).
-A growth-rate sweep at full (4, 12, 24, 36) shows only g = 8 fits the band —
-a 4× reduction of the authoritative g = 32, a larger deviation than halving
-depth.
-Half-scale block counts (keeping g = 32) is therefore the **most paper-faithful
-in-band choice**.
+The paper reports block counts (4, 12, 24, 36), growth rate 32, and about
+3.6 M trainable parameters.
+The paper does not specify enough implementation detail to independently
+reconstruct its parameter count: its figure labels every dense-layer output as
+32 but does not state the concatenated widths, convolution bias choices, or
+decoder input widths. Under this repository's explicit DenseNet concatenation
+and decoder mapping, these reported values cannot all be reproduced together.
+With this repository's real dense concatenation, fixed bottleneck width, and
+DS-Conv decoder mapping, the full-depth variant has **10,795,323 trainable
+parameters**. That is a reconstruction result, not a count of the authors'
+TensorFlow/Keras implementation.
+Half-scale block counts (keeping g = 32) is the chosen in-band reconstruction;
+it is not evidence that the paper's original implementation used these counts.
 
-The full analysis and encoder/decoder channel widths are in
-[`docs/research/2026-06-21-denseunet569-architecture-decisions.md`](docs/research/2026-06-21-denseunet569-architecture-decisions.md).
+The implementation also uses DS-Conv in decoder blocks as a documented
+efficiency deviation. The paper explicitly describes DS-Conv in dense blocks,
+and Fig. 1 labels the decoder operations as Conv3D.
+
+The architecture decision record and paper audit are in
+[`docs/research/2026-06-21-denseunet569-architecture-decisions.md`](docs/research/2026-06-21-denseunet569-architecture-decisions.md)
+and [`docs/research/2026-09-23-repository-audit.md`](docs/research/2026-09-23-repository-audit.md).
 
 ---
 
 ## Honesty / reporting note
 
-The paper reports Dice on the **hidden 70-volume LiTS test set**.
-This repository reports Dice on a **local, seeded 80/20 holdout** of the 131
-labeled volumes.
+The paper reports Dice on the **70-volume LiTS test set with hidden ground truth**.
+This repository reports Dice on locally supplied validation volumes.
 Absolute numbers differ and are **not directly comparable** to the paper's
 leaderboard figures.
 **Do not read the local holdout numbers as reproducing the leaderboard.**
@@ -133,7 +138,11 @@ The paper's results (liver Dice-per-case 96.2 / Dice-global 96.7;
 tumor Dice-per-case 69.6 / Dice-global 80.7) are cited here only as the
 published reference — clearly attributed to Alalwan et al. — and are not
 measurements made by this repository.
-The local holdout is a practical proxy for tracking training progress.
+The local validation set is a practical proxy for tracking training progress.
+
+The audit corrected spatial-axis handling and mask interpolation during
+preprocessing. Earlier checkpoints are not validated against this corrected
+pipeline; retraining and real-data evaluation are still required.
 
 ---
 
@@ -169,8 +178,8 @@ current release.
 - **Phase 2 (owner improvements):**
   - *Full-depth (4, 12, 24, 36) configuration* — an optional g = 32 build
     (~10.8 M params) for users with the memory budget; this is the
-    literal-figure architecture but breaks the paper's reported ~3.6 M / 8 GB
-    claim.
+    full block-count reconstruction; its parameter total exceeds the reported
+    ~3.6 M, and its training memory requirement has not been measured.
   - Sliding-window patch inference/training, Dice / Tversky loss, modern
     optimizer (AdamW + cosine schedule).
 - **Phase 3 (speculative):** open-weight finetuning from a published

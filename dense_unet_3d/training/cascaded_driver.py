@@ -5,7 +5,7 @@ Paper: Alalwan et al. (2021) §Training Scheme.
 Design (§6 F2)
 --------------
 Phase A: ``phase_a_epochs`` epochs, each epoch runs ``phase_a_steps_per_epoch``
-    steps over the dataloader (cycling as needed). At each epoch val Dice is
+    mini-batch updates (cycling over the dataloader as needed). At each epoch val Dice is
     computed; the epoch with the highest val Dice is saved as the ``best``
     checkpoint (plus a ``last`` checkpoint for the final epoch).
 
@@ -16,9 +16,8 @@ Phase B: Reload Phase A best weights into a fresh optimizer/scheduler, then
 "10 steps per epoch" interpretation
 ------------------------------------
 The paper states "each epoch = 10 steps/sub-epochs" without further definition.
-We treat one *step* as one full pass through the dataloader (i.e.
-``steps_per_epoch`` passes per epoch).  This is the LITERAL reading of the
-phrase "10 steps" — configurable via ``phase_a_steps_per_epoch`` and
+We treat one *step* as one mini-batch update, cycling through the dataloader
+as needed. This is configurable via ``phase_a_steps_per_epoch`` and
 ``phase_b_steps_per_epoch`` (default 10 each).
 
 See docs/research/2026-06-21-denseunet569-architecture-decisions.md for the
@@ -49,7 +48,6 @@ from __future__ import annotations
 import os
 import warnings
 from collections.abc import Iterator
-from itertools import islice
 from typing import Any
 
 import numpy as np
@@ -70,8 +68,19 @@ __all__ = [
     "run_cascaded_training",
 ]
 
-# Default steps per epoch — literal paper reading (§6 F2 decision record).
+# Default mini-batch updates per epoch; the paper leaves this interpretation underspecified.
 DEFAULT_STEPS_PER_EPOCH: int = 10
+
+
+class _LiverOnlyLoader:
+    """Yield a loader's batches with tumour labels folded into liver labels."""
+
+    def __init__(self, loader: DataLoader) -> None:
+        self._loader = loader
+
+    def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
+        for volume, segmentation in self._loader:
+            yield volume, segmentation.clamp(max=1)
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +115,9 @@ def save_checkpoint(
     metrics:
         Dictionary of evaluation metrics (e.g. ``{"val_dice": 0.85}``).
     """
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
     ckpt: dict[str, Any] = {
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
@@ -158,12 +169,6 @@ def load_checkpoint(
 # ---------------------------------------------------------------------------
 
 
-def _cycling_iter(loader: DataLoader) -> Iterator:
-    """Yield batches from *loader* indefinitely (cycle)."""
-    while True:
-        yield from loader
-
-
 def _run_epoch(
     *,
     config: dict[str, Any],
@@ -178,6 +183,11 @@ def _run_epoch(
     A *step* here means one mini-batch gradient update (not a full pass over
     the dataset).  We cycle through the loader as needed.
 
+    Raises
+    ------
+    ValueError
+        If a positive number of steps is requested from an empty loader.
+
     Returns
     -------
     float
@@ -191,7 +201,21 @@ def _run_epoch(
     # rebuild it per step inside the loop.
     criterion = get_criterion(config, device=device)
 
-    for volume, segmentation in islice(_cycling_iter(loader), steps_per_epoch):
+    batches = iter(loader)
+    for _ in range(steps_per_epoch):
+        try:
+            volume, segmentation = next(batches)
+        except StopIteration:
+            # Start another pass when more updates than batches are requested.
+            # A second immediate StopIteration identifies an empty loader;
+            # unlike ``islice(_cycling_iter(...))``, it cannot loop forever.
+            batches = iter(loader)
+            try:
+                volume, segmentation = next(batches)
+            except StopIteration as exc:
+                raise ValueError(
+                    "train_loader yielded no batches, so a training step cannot run."
+                ) from exc
         volume = volume.to(device, dtype=torch.float32)
         if segmentation.dim() == 5:
             segmentation = segmentation.squeeze(1)
@@ -207,6 +231,19 @@ def _run_epoch(
         count += 1
 
     return running_loss / count if count > 0 else 0.0
+
+
+def _validate_phase_schedule(total_epochs: int, steps_per_epoch: int, phase_name: str) -> None:
+    """Reject schedules that cannot satisfy the phase checkpoint contract."""
+    if total_epochs < 1:
+        raise ValueError(f"{phase_name}_epochs must be at least 1, got {total_epochs}.")
+    if steps_per_epoch < 1:
+        raise ValueError(f"{phase_name}_steps_per_epoch must be at least 1, got {steps_per_epoch}.")
+
+
+def _is_better_score(candidate: float, best: float) -> bool:
+    """Return whether a finite validation score strictly improves the best score."""
+    return np.isfinite(candidate) and candidate > best
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +273,8 @@ def run_phase_a(
     device:
         CPU or CUDA device.
     train_loader:
-        DataLoader for the training split.
+        DataLoader for the training split. Tumour labels are collapsed to liver
+        labels for this liver-only phase.
     val_loader:
         Optional DataLoader for validation Dice computation each epoch.
 
@@ -250,6 +288,7 @@ def run_phase_a(
     model_save_dir: str = config["pathing"]["model_save_dir"]
     phase_dir = os.path.join(model_save_dir, run_name, "phase_a")
     os.makedirs(phase_dir, exist_ok=True)
+    best_path = os.path.join(phase_dir, "best.pt")
 
     training_cfg = config["training"]
     total_epochs: int = training_cfg.get("phase_a_epochs", 100)
@@ -257,22 +296,27 @@ def run_phase_a(
         "phase_a_steps_per_epoch",
         training_cfg.get("steps_per_epoch", DEFAULT_STEPS_PER_EPOCH),
     )
+    _validate_phase_schedule(total_epochs, steps_per_epoch, "phase_a")
 
     model = model.to(device)
     optimizer = get_optimizer(model, config)
     scheduler = get_scheduler(optimizer, config)
 
     epoch_losses: list[float] = []
-    best_val_dice: float = -1.0
+    best_val_dice: float = float("-inf")
     best_epoch: int = 1
     best_metrics: dict[str, float] = {}
+    selected_best = False
+
+    liver_only_train_loader = _LiverOnlyLoader(train_loader)
+    liver_only_val_loader = _LiverOnlyLoader(val_loader) if val_loader is not None else None
 
     for epoch in tqdm(range(1, total_epochs + 1), desc="Phase A", position=0, leave=True):
         epoch_loss = _run_epoch(
             config=config,
             model=model,
             device=device,
-            loader=train_loader,
+            loader=liver_only_train_loader,  # type: ignore[arg-type]
             optimizer=optimizer,
             steps_per_epoch=steps_per_epoch,
         )
@@ -283,11 +327,11 @@ def run_phase_a(
 
         # Compute val Dice for best-checkpoint tracking.
         metrics: dict[str, float] = {"train_loss": epoch_loss}
-        if val_loader is not None:
+        if liver_only_val_loader is not None:
             from dense_unet_3d.evaluation.evaluate import evaluate  # lazy import
 
             model.eval()
-            val_metrics = evaluate(model, device, val_loader)
+            val_metrics = evaluate(model, device, liver_only_val_loader)  # type: ignore[arg-type]
             metrics.update(val_metrics)
             val_dice = float(val_metrics.get("liver_per_case", 0.0))
         else:
@@ -296,12 +340,13 @@ def run_phase_a(
         tqdm.write(f"Phase A epoch {epoch}/{total_epochs}: loss={epoch_loss:.4f}")
 
         # Update best checkpoint (strict >: equal score keeps the earlier epoch).
-        if val_dice > best_val_dice:
+        if _is_better_score(val_dice, best_val_dice):
             best_val_dice = val_dice
             best_epoch = epoch
             best_metrics = metrics
+            selected_best = True
             save_checkpoint(
-                path=os.path.join(phase_dir, "best.pt"),
+                path=best_path,
                 model=model,
                 optimizer=optimizer,
                 scheduler=scheduler,
@@ -318,6 +363,11 @@ def run_phase_a(
         epoch=total_epochs,
         metrics=metrics,  # metrics from the final epoch
     )
+
+    if not selected_best:
+        raise ValueError(
+            "Phase A produced no finite validation selection score; no best checkpoint was saved."
+        )
 
     return {
         "epoch_losses": epoch_losses,
@@ -373,6 +423,7 @@ def run_phase_b(
     model_save_dir: str = config["pathing"]["model_save_dir"]
     phase_dir = os.path.join(model_save_dir, run_name, "phase_b")
     os.makedirs(phase_dir, exist_ok=True)
+    best_path = os.path.join(phase_dir, "best.pt")
 
     training_cfg = config["training"]
     total_epochs: int = training_cfg.get("phase_b_epochs", 1000)
@@ -380,6 +431,7 @@ def run_phase_b(
         "phase_b_steps_per_epoch",
         training_cfg.get("steps_per_epoch", DEFAULT_STEPS_PER_EPOCH),
     )
+    _validate_phase_schedule(total_epochs, steps_per_epoch, "phase_b")
 
     # Move model to device first so load_checkpoint maps to the right device.
     model = model.to(device)
@@ -394,9 +446,10 @@ def run_phase_b(
     model.load_state_dict(phase_a_ckpt["model_state_dict"])
 
     epoch_losses: list[float] = []
-    best_val_dice: float = -1.0
+    best_val_dice: float = float("-inf")
     best_epoch: int = 1
     best_metrics: dict[str, float] = {}
+    selected_best = False
 
     for epoch in tqdm(range(1, total_epochs + 1), desc="Phase B", position=0, leave=True):
         epoch_loss = _run_epoch(
@@ -436,12 +489,13 @@ def run_phase_b(
         tqdm.write(f"Phase B epoch {epoch}/{total_epochs}: loss={epoch_loss:.4f}")
 
         # Strict >: equal score keeps the earlier epoch; NaN is never better.
-        if val_dice > best_val_dice:
+        if _is_better_score(val_dice, best_val_dice):
             best_val_dice = val_dice
             best_epoch = epoch
             best_metrics = metrics
+            selected_best = True
             save_checkpoint(
-                path=os.path.join(phase_dir, "best.pt"),
+                path=best_path,
                 model=model,
                 optimizer=optimizer,
                 scheduler=scheduler,
@@ -458,6 +512,11 @@ def run_phase_b(
         epoch=total_epochs,
         metrics=metrics,
     )
+
+    if not selected_best:
+        raise ValueError(
+            "Phase B produced no finite validation selection score; no best checkpoint was saved."
+        )
 
     return {
         "epoch_losses": epoch_losses,
@@ -478,6 +537,9 @@ def run_cascaded_training(
     device: torch.device,
     train_loader: DataLoader,
     val_loader: DataLoader | None = None,
+    *,
+    phase_b_train_loader: DataLoader | None = None,
+    phase_b_val_loader: DataLoader | None = None,
 ) -> dict[str, Any]:
     """Full cascaded two-phase training driver.
 
@@ -489,14 +551,21 @@ def run_cascaded_training(
     config:
         Run configuration dict.
     model:
-        Model to train.  Phase A trains from this state; Phase B creates a
-        fresh copy of the same architecture and reloads Phase A best.
+        Model to train. Phase A trains this instance; Phase B reloads Phase A
+        best weights into the same instance before training.
     device:
         CPU or CUDA device.
     train_loader:
         DataLoader for training split.
     val_loader:
-        Optional validation DataLoader.
+        Optional Phase A validation DataLoader. Tumour labels are folded into
+        liver labels for Phase A training and validation.
+    phase_b_train_loader:
+        Optional Phase B training DataLoader. Defaults to ``train_loader``;
+        its tumour labels are preserved.
+    phase_b_val_loader:
+        Optional Phase B validation DataLoader. Defaults to ``val_loader``;
+        its tumour labels are preserved.
 
     Returns
     -------
@@ -519,15 +588,13 @@ def run_cascaded_training(
         val_loader=val_loader,
     )
 
-    # --- Phase B (fresh model reloads Phase A best) ---
-    # We instantiate a same-class model to avoid modifying Phase A's final state.
-    # For the driver we reuse the same model instance and reload weights.
+    # --- Phase B (reuse model instance and reload Phase A best) ---
     phase_b_result = run_phase_b(
         config,
         model,
         device,
-        train_loader,
-        val_loader=val_loader,
+        phase_b_train_loader if phase_b_train_loader is not None else train_loader,
+        val_loader=phase_b_val_loader if phase_b_val_loader is not None else val_loader,
         phase_a_best_path=phase_a_best_path,
     )
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dense-unet-3d"
 version = "0.1.0"
-description = "3D-DenseUNet-569: faithful PyTorch implementation for medical image segmentation."
+description = "Reduced-depth 3D DenseUNet for liver and lesion segmentation, inspired by Alalwan et al."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -31,6 +31,9 @@ dev = [
 
 [project.scripts]
 "dense-unet-3d" = "dense_unet_3d.cli:main"
+
+[tool.setuptools.package-data]
+dense_unet_3d = ["config.yaml"]
 
 [tool.setuptools.packages.find]
 where = ["."]

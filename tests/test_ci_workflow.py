@@ -126,3 +126,12 @@ def test_python_version_is_311_or_higher() -> None:
             assert int(major) == 3 and int(minor) >= 11, f"Python version {v} is below 3.11"
         except (ValueError, IndexError):
             pass  # skip unparseable tokens
+
+
+def test_quality_gates_propagate_failures() -> None:
+    for job in _load_workflow()["jobs"].values():
+        for step in job["steps"]:
+            command = step.get("run", "")
+            if any(gate in command for gate in ("mypy", "ruff", "pytest")):
+                assert "|| true" not in command
+                assert not step.get("continue-on-error", False)

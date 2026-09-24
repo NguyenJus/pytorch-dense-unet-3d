@@ -124,6 +124,42 @@ class TestCriterionBuiltOncePerEpoch:
         )
 
 
+class TestCascadedScheduleValidation:
+    """Cascaded phases fail clearly when their checkpoint contract is impossible."""
+
+    def test_empty_loader_raises_instead_of_spinning_forever(self) -> None:
+        model = _TinyModel()
+        empty_loader = DataLoader(
+            TensorDataset(torch.empty(0, 1, 4, 8, 8), torch.empty(0, 4, 8, 8, dtype=torch.long)),
+            batch_size=2,
+        )
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _base_cfg(tmp, use_scheduler=False)
+            with pytest.raises(ValueError, match="train_loader yielded no batches"):
+                _run_epoch(
+                    config=cfg,
+                    model=model,
+                    device=torch.device("cpu"),
+                    loader=empty_loader,
+                    optimizer=optimizer,
+                    steps_per_epoch=1,
+                )
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [("phase_a_epochs", 0), ("phase_a_steps_per_epoch", 0)],
+    )
+    def test_phase_a_rejects_nonpositive_schedule(self, key: str, value: int) -> None:
+        model = _TinyModel()
+        loader = _loader()
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _base_cfg(tmp)
+            cfg["training"][key] = value
+            with pytest.raises(ValueError, match="must be at least 1"):
+                run_phase_a(cfg, model, torch.device("cpu"), loader)
+
+
 # ---------------------------------------------------------------------------
 # Test: save_checkpoint / load_checkpoint round-trip (with scheduler)
 # ---------------------------------------------------------------------------
@@ -183,6 +219,22 @@ class TestCheckpointRoundTrip:
         # Metadata preserved
         assert meta["epoch"] == 5
         assert meta["metrics"]["val_dice"] == pytest.approx(0.85)
+
+    def test_save_checkpoint_accepts_a_bare_filename(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A filename in the current directory has no parent directory to create."""
+        model = _TinyModel()
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+        with tempfile.TemporaryDirectory() as tmp:
+            monkeypatch.chdir(tmp)
+            save_checkpoint(
+                path="checkpoint.pt",
+                model=model,
+                optimizer=optimizer,
+                scheduler=None,
+                epoch=1,
+                metrics={"val_dice": 0.5},
+            )
+            assert os.path.isfile("checkpoint.pt")
 
     def test_round_trip_without_scheduler(self) -> None:
         """save/load with scheduler=None stores None and loads cleanly."""
@@ -482,6 +534,47 @@ class TestRunCascadedTraining:
         for v in all_losses:
             assert torch.isfinite(torch.tensor(v)), f"Non-finite loss encountered: {v}"
 
+    def test_phase_a_folds_tumours_for_training_and_validation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Phase A uses liver-only labels while Phase B preserves tumour labels."""
+        labels_seen_by_loss: list[torch.Tensor] = []
+        labels_seen_by_validation: list[torch.Tensor] = []
+
+        class RecordingCriterion(nn.Module):
+            def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+                labels_seen_by_loss.append(target.detach().cpu().clone())
+                return nn.functional.cross_entropy(logits, target)
+
+        def record_evaluate(
+            _model: nn.Module, _device: torch.device, loader: DataLoader
+        ) -> dict[str, float]:
+            labels_seen_by_validation.append(next(iter(loader))[1].detach().cpu().clone())
+            return {"liver_per_case": 0.5, "tumor_per_case": 0.5}
+
+        monkeypatch.setattr(
+            cascaded_mod, "get_criterion", lambda _cfg, device: RecordingCriterion()
+        )
+        monkeypatch.setattr("dense_unet_3d.evaluation.evaluate.evaluate", record_evaluate)
+
+        volumes = torch.randn(1, 1, 2, 2, 2)
+        labels = torch.tensor([[[[0, 1], [2, 0]], [[1, 2], [0, 0]]]])
+        loader = DataLoader(TensorDataset(volumes, labels), batch_size=1)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _base_cfg(tmp, use_scheduler=False)
+            cfg["training"].update(
+                phase_a_epochs=1,
+                phase_a_steps_per_epoch=1,
+                phase_b_epochs=1,
+                phase_b_steps_per_epoch=1,
+            )
+            run_cascaded_training(cfg, _TinyModel(), torch.device("cpu"), loader, val_loader=loader)
+
+        assert 2 not in torch.unique(labels_seen_by_loss[0]).tolist()
+        assert 2 in torch.unique(labels_seen_by_loss[1]).tolist()
+        assert 2 not in torch.unique(labels_seen_by_validation[0]).tolist()
+        assert 2 in torch.unique(labels_seen_by_validation[1]).tolist()
+
     def test_steps_per_epoch_is_configurable(self) -> None:
         """steps_per_epoch comes from config, not hardcoded."""
         model = _TinyModel()
@@ -719,3 +812,79 @@ class TestPhaseCheckpointSelection:
             assert not runtime_warnings, (
                 f"Unexpected RuntimeWarning(s) leaked: {[str(w.message) for w in runtime_warnings]}"
             )
+
+    def test_phase_b_all_nan_selection_fails_without_replacing_prior_best_checkpoint(self) -> None:
+        """A failed run cannot return a stale best checkpoint or destroy its artifact."""
+        model = _TinyModel()
+        loader = _loader()
+        all_nan_metrics = {
+            "liver_per_case": float("nan"),
+            "liver_global": 1.0,
+            "tumor_per_case": float("nan"),
+            "tumor_global": 1.0,
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _base_cfg(tmp)
+            cfg["training"]["phase_b_epochs"] = 1
+            run_phase_a(cfg, model, torch.device("cpu"), loader, val_loader=None)
+            phase_a_best_path = os.path.join(tmp, "test_cascaded", "phase_a", "best.pt")
+            phase_b_best_path = os.path.join(tmp, "test_cascaded", "phase_b", "best.pt")
+            os.makedirs(os.path.dirname(phase_b_best_path), exist_ok=True)
+            stale_checkpoint = {"stale": True}
+            torch.save(stale_checkpoint, phase_b_best_path)
+            with open(phase_b_best_path, "rb") as checkpoint_file:
+                stale_bytes = checkpoint_file.read()
+
+            with mock.patch(
+                "dense_unet_3d.evaluation.evaluate.evaluate", return_value=all_nan_metrics
+            ):
+                with pytest.raises(ValueError, match="no finite validation selection score"):
+                    run_phase_b(
+                        cfg,
+                        _TinyModel(),
+                        torch.device("cpu"),
+                        loader,
+                        val_loader=loader,
+                        phase_a_best_path=phase_a_best_path,
+                    )
+
+            with open(phase_b_best_path, "rb") as checkpoint_file:
+                assert checkpoint_file.read() == stale_bytes
+
+    def test_phase_b_nan_then_finite_selects_the_finite_epoch(self) -> None:
+        """A finite metric after NaN is still eligible to become the best checkpoint."""
+        model = _TinyModel()
+        loader = _loader()
+        metrics = [
+            {
+                "liver_per_case": float("nan"),
+                "liver_global": 1.0,
+                "tumor_per_case": float("nan"),
+                "tumor_global": 1.0,
+            },
+            {
+                "liver_per_case": 0.7,
+                "liver_global": 0.7,
+                "tumor_per_case": 0.5,
+                "tumor_global": 0.5,
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _base_cfg(tmp)
+            cfg["training"]["phase_b_epochs"] = 2
+            run_phase_a(cfg, model, torch.device("cpu"), loader, val_loader=None)
+            phase_a_best_path = os.path.join(tmp, "test_cascaded", "phase_a", "best.pt")
+
+            with mock.patch("dense_unet_3d.evaluation.evaluate.evaluate", side_effect=metrics):
+                result = run_phase_b(
+                    cfg,
+                    _TinyModel(),
+                    torch.device("cpu"),
+                    loader,
+                    val_loader=loader,
+                    phase_a_best_path=phase_a_best_path,
+                )
+
+            assert result["best_epoch"] == 2

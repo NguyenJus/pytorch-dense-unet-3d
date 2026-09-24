@@ -234,6 +234,16 @@ class TestScaleAndPadOrCrop:
             "Non-zero regions differ between image and mask — different scale applied!"
         )
 
+    def test_mask_scaling_uses_nearest_neighbor(self) -> None:
+        """Paired scaling must not invent mask values between adjacent labels."""
+        transform = ScaleAndPadOrCrop(scale_factor=(1.2, 1.2))
+        image = torch.zeros(1, 2, 10, 10)
+        mask = torch.zeros(1, 2, 10, 10)
+        mask[:, :, :, :5] = 1
+        mask[:, :, :, 5:] = 2
+        _image, scaled_mask = transform((image, mask))
+        assert set(torch.unique(scaled_mask).tolist()) <= {0.0, 1.0, 2.0}
+
     def test_frozen_init_would_fail_randomness(self) -> None:
         """Frozen-in-__init__ scale gives identical outputs for all calls — documents the bug."""
 

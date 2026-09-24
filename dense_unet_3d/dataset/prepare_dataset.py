@@ -1,7 +1,10 @@
+import os
+from typing import Any
+
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-from dense_unet_3d.dataset.LITSDataset import LITSDataset
+from dense_unet_3d.dataset.LITSDataset import LITSDataset, _case_id, discover_pairs
 from dense_unet_3d.dataset.transforms.ClampValues import ClampValues
 from dense_unet_3d.dataset.transforms.RandomHorizontalFlip import RandomHorizontalFlip
 from dense_unet_3d.dataset.transforms.ReshapeTensor import ReshapeTensor
@@ -25,15 +28,13 @@ def compose_transforms(config: dict, train: bool = True) -> dict:
                       both image and mask together (train only).
     """
     # Intensity (volume) pipeline.
-    all_transforms = [
-        transforms.ToTensor(),
+    all_transforms: list[Any] = [
         ReshapeTensor(),
     ]
 
     # Mask pipeline: same tensor/reshape steps, but NO HU clamp and a
     # nearest-neighbour resize so labels stay integer.
-    mask_transforms: list = [
-        transforms.ToTensor(),
+    mask_transforms: list[Any] = [
         ReshapeTensor(),
     ]
 
@@ -73,24 +74,47 @@ def compose_transforms(config: dict, train: bool = True) -> dict:
     }
 
 
-def prepare_dataset(config: dict, train: bool) -> LITSDataset:
+def prepare_dataset(
+    config: dict,
+    train: bool,
+    *,
+    detect_tumors: bool = True,
+) -> LITSDataset:
     """
     Builds the dataset based on user configuration
 
     :param config:  dictionary containing configuration instructions
     :param train:   boolean to tell whether to pull training or testing images
+    :param detect_tumors: when ``False``, collapse tumour label 2 to liver
+        label 1 for the Phase A liver-only task.
     :return:        a created LITSDataset class
     """
     if train:
         img_dirs = config["pathing"]["train_img_dirs"]
     else:
-        img_dirs = config["pathing"]["test_img_dirs"]
-        if img_dirs is None or len(img_dirs) == 0 or any(d is None for d in img_dirs):
+        img_dirs = config["pathing"].get("test_img_dirs")
+        if (
+            img_dirs is None
+            or len(img_dirs) == 0
+            or any(not isinstance(d, str) or not d for d in img_dirs)
+        ):
             raise ValueError(
                 "pathing.test_img_dirs must point to labeled volume directories for "
                 "non-dry-run evaluation, but it is unset or contains null entries. "
                 "Set pathing.test_img_dirs in your config to one or more valid directories."
             )
+        train_dirs = config["pathing"].get("train_img_dirs")
+        if train_dirs:
+            train_pairs = discover_pairs(train_dirs)
+            test_pairs = discover_pairs(img_dirs)
+            train_paths = {os.path.realpath(volume) for volume, _segmentation in train_pairs}
+            test_paths = {os.path.realpath(volume) for volume, _segmentation in test_pairs}
+            train_case_ids = {_case_id(volume, "volume") for volume, _segmentation in train_pairs}
+            test_case_ids = {_case_id(volume, "volume") for volume, _segmentation in test_pairs}
+            if train_paths & test_paths or train_case_ids & test_case_ids:
+                raise ValueError(
+                    "train_img_dirs and test_img_dirs overlap; validation data would leak into training"
+                )
 
     transform = compose_transforms(config, train=train)
     all_transforms = transform["all_transforms"]
@@ -99,6 +123,7 @@ def prepare_dataset(config: dict, train: bool) -> LITSDataset:
 
     dataset = LITSDataset(
         img_dirs,
+        detect_tumors=detect_tumors,
         transform=all_transforms,
         mask_transform=mask_transforms,
         paired_transform=paired_transforms,
@@ -107,15 +132,21 @@ def prepare_dataset(config: dict, train: bool) -> LITSDataset:
     return dataset
 
 
-def prepare_dataloader(config: dict, train: bool = True) -> DataLoader:
+def prepare_dataloader(
+    config: dict,
+    train: bool = True,
+    *,
+    detect_tumors: bool = True,
+) -> DataLoader:
     """
     Builds the dataloader class to pass into PyTorch
 
     :param config:  dictionary containing configuration instructions
     :param train:   boolean to tell whether to use train or test images
+    :param detect_tumors: when ``False``, return liver-only labels for Phase A.
     :return:        DataLoader class with dataset loaded
     """
-    dataset = prepare_dataset(config, train)
+    dataset = prepare_dataset(config, train, detect_tumors=detect_tumors)
     batch_size = config["dataset"]["batch_size"]
     # Never shuffle validation/test data — keeps evaluation deterministic.
     shuffle = config["dataset"]["shuffle"] if train else False

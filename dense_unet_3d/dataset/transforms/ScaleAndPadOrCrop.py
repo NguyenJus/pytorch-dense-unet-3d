@@ -36,16 +36,16 @@ class ScaleAndPadOrCrop:
         :return:     tuple of tensors with the same shape as the inputs.
         """
         scale: float = np.random.uniform(self.scale_lo, self.scale_hi)
-        original_size = list(imgs[0].shape)
+        original_spatial_size = list(imgs[0].shape[-2:])
         imgs = tuple(
             F.interpolate(
                 img.unsqueeze(0),
                 scale_factor=(1, scale, scale),
-                mode="trilinear",
-                align_corners=True,
+                mode="trilinear" if index == 0 else "nearest",
+                align_corners=True if index == 0 else None,
                 recompute_scale_factor=True,
             ).squeeze(0)
-            for img in imgs
+            for index, img in enumerate(imgs)
         )
-        imgs = tuple(TF.center_crop(img, original_size[-1]) for img in imgs)
+        imgs = tuple(TF.center_crop(img, original_spatial_size) for img in imgs)
         return imgs

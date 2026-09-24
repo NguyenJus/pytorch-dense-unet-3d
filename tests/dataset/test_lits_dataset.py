@@ -145,6 +145,32 @@ class TestLen:
         ds = LITSDataset(img_dirs=[str(tmp_path)])
         assert len(ds) == 2
 
+    def test_missing_segmentation_is_rejected_without_mispairing(self, tmp_path: Path) -> None:
+        """A missing middle case must not shift later sorted paths into a wrong pair."""
+        vol = np.zeros((8, 6, 4), dtype=np.float32)
+        seg = np.zeros((8, 6, 4), dtype=np.int16)
+        _write_nifti(tmp_path / "volume-0.nii", vol)
+        _write_nifti(tmp_path / "volume-1.nii", vol)
+        _write_nifti(tmp_path / "segmentation-0.nii", seg)
+        with pytest.raises(ValueError, match="case IDs do not match|missing segmentations"):
+            LITSDataset(img_dirs=[str(tmp_path)])
+
+    def test_mismatched_image_mask_grids_are_rejected(self, tmp_path: Path) -> None:
+        """Spatially different paired NIfTIs cannot be trained as aligned voxels."""
+        _write_nifti(tmp_path / "volume0.nii", np.zeros((8, 6, 4), dtype=np.float32))
+        _write_nifti(tmp_path / "segmentation0.nii", np.zeros((8, 6, 3), dtype=np.int16))
+        with pytest.raises(ValueError, match="shape mismatch"):
+            LITSDataset(img_dirs=[str(tmp_path)])[0]
+
+    def test_four_dimensional_image_mask_pair_is_rejected(self, tmp_path: Path) -> None:
+        """LiTS samples are 3-D volumes, not 4-D image sequences."""
+        volume = np.zeros((8, 6, 4, 2), dtype=np.float32)
+        segmentation = np.zeros((8, 6, 4, 2), dtype=np.int16)
+        _write_nifti(tmp_path / "volume0.nii", volume)
+        _write_nifti(tmp_path / "segmentation0.nii", segmentation)
+        with pytest.raises(ValueError, match="must be 3-D"):
+            LITSDataset(img_dirs=[str(tmp_path)])[0]
+
 
 # ---------------------------------------------------------------------------
 # LITSDataset.__getitem__
@@ -191,6 +217,37 @@ class TestGetItem:
         assert image.shape[2] == 224
         assert image.shape[3] == 224
 
+    def test_full_pipeline_preserves_nifti_depth_axis(self, tmp_path: Path) -> None:
+        """The full deterministic pipeline converts raw HWD once to CDHW."""
+        from dense_unet_3d.dataset.prepare_dataset import compose_transforms
+
+        h, w, d = 3, 4, 5
+        vol = np.zeros((h, w, d), dtype=np.float32)
+        seg = np.zeros((h, w, d), dtype=np.int16)
+        for depth in range(d):
+            vol[:, :, depth] = depth + 1
+        _write_nifti(tmp_path / "volume0.nii", vol)
+        _write_nifti(tmp_path / "segmentation0.nii", seg)
+        transform = compose_transforms(
+            {
+                "dataset": {
+                    "clamp_hu": False,
+                    "resize_img": False,
+                    "random_hflip": False,
+                    "scale_img": False,
+                }
+            },
+            train=False,
+        )
+        image, _mask = LITSDataset(
+            img_dirs=[str(tmp_path)],
+            transform=transform["all_transforms"],
+            mask_transform=transform["mask_transforms"],
+        )[0]
+        assert image.shape == (1, d, h, w)
+        for depth in range(d):
+            assert torch.all(image[0, depth] == depth + 1)
+
 
 # ---------------------------------------------------------------------------
 # FIX 1: mask must be resized with NEAREST-neighbour, never trilinear
@@ -199,6 +256,42 @@ class TestGetItem:
 
 class TestMaskNearestResize:
     """The seg mask must pass through a nearest-neighbour resize path."""
+
+    def test_omitted_mask_transform_does_not_reuse_image_resize(self, tmp_path: Path) -> None:
+        """A geometry-changing image pipeline requires an explicit mask pipeline."""
+        from torchvision import transforms
+
+        from dense_unet_3d.dataset.transforms.ReshapeTensor import ReshapeTensor
+        from dense_unet_3d.dataset.transforms.Resize import Resize
+
+        vol = np.zeros((4, 4, 2), dtype=np.float32)
+        seg = np.zeros((4, 4, 2), dtype=np.int16)
+        seg[2:] = 2
+        _write_nifti(tmp_path / "volume0.nii", vol)
+        _write_nifti(tmp_path / "segmentation0.nii", seg)
+
+        image_transform = transforms.Compose([ReshapeTensor(), Resize((3, 7, 7))])
+        with pytest.raises(ValueError, match="matching mask_transform"):
+            LITSDataset(img_dirs=[str(tmp_path)], transform=image_transform)[0]
+
+    def test_image_only_intensity_transform_leaves_mask_untouched(self, tmp_path: Path) -> None:
+        """An image-only intensity pipeline may omit ``mask_transform``."""
+        from torchvision import transforms
+
+        from dense_unet_3d.dataset.transforms.ClampValues import ClampValues
+        from dense_unet_3d.dataset.transforms.ReshapeTensor import ReshapeTensor
+
+        vol = np.full((4, 4, 2), 5.0, dtype=np.float32)
+        seg = np.zeros((4, 4, 2), dtype=np.int16)
+        seg[2:] = 2
+        _write_nifti(tmp_path / "volume0.nii", vol)
+        _write_nifti(tmp_path / "segmentation0.nii", seg)
+
+        image_transform = transforms.Compose([ReshapeTensor(), ClampValues((0.0, 1.0))])
+        _image, mask = LITSDataset(img_dirs=[str(tmp_path)], transform=image_transform)[0]
+
+        expected_mask = torch.from_numpy(seg).permute(2, 0, 1).unsqueeze(0).long()
+        assert torch.equal(mask, expected_mask)
 
     def test_no_interpolated_labels_at_boundaries(self, tmp_path: Path) -> None:
         """A mask with adjacent labels 1 and 2 resized through the dataset

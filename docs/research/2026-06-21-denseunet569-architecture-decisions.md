@@ -1,9 +1,6 @@
 # Architecture Decision Record — 3D-DenseUNet-569
 
 **Date:** 2026-06-21
-**Spec:**
-`docs/superpowers/specs/2026-06-21-faithful-3d-denseunet569-design.md`
-§3, §6 G1, §8
 **Code:**
 `dense_unet_3d/model/DenseUNet3d.py`,
 `dense_unet_3d/model/building_blocks/TransitionBlock.py`
@@ -15,7 +12,7 @@
 ### 1.1 Per-block channel labels ignored
 
 Fig 1 prints "32" as the channel count at almost every block boundary.
-That contradicts dense connectivity: each dense layer concatenates its
+That appears inconsistent with dense connectivity: each dense layer concatenates its
 32-channel output onto the running feature stack, so the channel width
 after block *k* is `initial_channels + k × growth_rate`.
 With growth rate 32 and the implemented block counts (see §4) the
@@ -97,18 +94,18 @@ progression.
 **Paper:** block counts (4, 12, 24, 36) at 1:3:6:9 ratio.
 **Implemented:** (2, 6, 12, 18) — half-scale, preserving the 1:3:6:9 ratio.
 
-The paper specifies block counts (4, 12, 24, 36) as an authoritative
-architecture fact.  Full-scale with DS-Conv decoder and compression 0.5
-yields approximately **10.4M** trainable parameters — approximately 3×
-the ~3.6M ±15% target band (3.06M–4.14M).  The excess is structural:
+The paper specifies block counts (4, 12, 24, 36) in Fig. 1 and reports 3.6 M
+trainable parameters. Full-scale under this repository's dense-concatenation,
+compression-0.5, and DS-Conv-decoder mapping yields exactly **10,795,323**
+trainable parameters. This does not prove the paper is contradictory: it does
+not fully specify channel propagation, convolution bias choices, or decoder
+input widths. The excess in this reconstruction is structural:
 the dense-connectivity bottleneck (in_ch → 128 per layer, where in_ch
 grows by 32 each layer) means each successive DenseLayer adds a
-linearly-growing first-conv cost.  DB3 alone accounts for ~2.1M params
-and DB4 for ~5.2M at full scale.
+linearly-growing first-conv cost. DB3 accounts for 2,085,120 parameters
+and DB4 for 5,210,496 at full scale.
 
-Per spec §3 (amended to authorize block-count scaling as a secondary
-reconciliation knob when compression + DS-Conv + skip-projection knobs
-are insufficient), the block counts were halved to **(2, 6, 12, 18)**,
+The existing project decision halves the block counts to **(2, 6, 12, 18)**,
 which:
 
 1. Preserves the paper's 1:3:6:9 architectural ratio.
@@ -138,12 +135,14 @@ in `dense_unet_3d/model/DenseUNet3d.py` (see module-level comment).
 
 Each decoder upsampling block (`UpsamplingBlock`) uses a 3D
 depthwise-separable convolution (DS-Conv: depthwise 3×3×3 + pointwise
-1×1×1) instead of a dense 3×3×3 Conv3d, consistent with the paper's
-DS-Conv-throughout design (§1 headline contribution).
+1×1×1) instead of a dense 3×3×3 Conv3d. This is an implementation
+efficiency deviation: the paper explicitly assigns DS-Conv to dense blocks
+and Fig. 1 labels decoder operations as Conv3D.
 
 This substantially reduces the decoder parameter budget: for example
 `up1` with combined input 836 + 520 = 1356 channels and output 504
-channels costs ~1.3M with DS-Conv vs ~19M with a dense 3×3×3 Conv3d.
+channels costs 722,904 parameters with DS-Conv versus 18,451,368 with a
+dense 3×3×3 Conv3d (including the corresponding BatchNorm parameters).
 
 ---
 
@@ -195,11 +194,11 @@ steps)" and "1000 epochs (each 10 steps)". The term "step" is not
 precisely defined.
 
 **Interpretation adopted (spec §2, training scheme):**
-"10 steps per epoch" is treated as a configurable sub-epoch loop count
-— the trainer iterates over the data loader 10 times per epoch call.
-This is the literal reading of the paper's language.
-The implementation exposes this as a config key (`steps_per_epoch`,
-default 10).
+"10 steps per epoch" means ten mini-batch gradient updates, cycling through
+the loader if necessary. It does not mean ten full passes over the dataset.
+The implementation exposes `phase_a_steps_per_epoch` and
+`phase_b_steps_per_epoch` (both default 10, with `steps_per_epoch` as a shared
+fallback). This is an implementation interpretation of the ambiguous wording.
 
 The cascaded 2-phase structure:
 
@@ -222,4 +221,4 @@ implementation.
 | Stem padding | `pad=0` | `pad=3` | k=7 s=2 requires pad=3 for 224→112 |
 | Dense-layer k=3 padding | `pad=0` | `pad=1` | Same-resolution requires pad=1 |
 | Compression factor | 0.5 | 0.5 (unchanged) | No deviation needed |
-| Block counts | (4,12,24,36) | (2,6,12,18) half-scale | Full-scale yields ~10.4M params; half-scale achieves 3.52M within ±15% band |
+| Block counts | (4,12,24,36) | (2,6,12,18) half-scale | This reconstruction yields 10,795,323 params at full depth; half-scale achieves 3.52M within the project’s target band |

@@ -252,3 +252,22 @@ class TestCpuDryRun:
         # With val_loader, result should be a dict (or contain metrics)
         # At minimum, train() must not crash and must return something defined
         assert result is not None
+
+
+class TestTargetShapeHandling:
+    """Training accepts targets with and without a singleton channel axis."""
+
+    def test_depth_one_targets_without_channel_keep_the_depth_axis(self) -> None:
+        """(N, D=1, H, W) targets are valid CrossEntropyLoss targets."""
+        model = _TinyModel()
+        volumes = torch.randn(2, 1, 1, 4, 4)
+        labels = torch.randint(0, 3, (2, 1, 4, 4))
+        loader = DataLoader(TensorDataset(volumes, labels), batch_size=2)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            losses = train(
+                _base_config(tmp, use_scheduler=False), model, torch.device("cpu"), loader
+            )
+
+        assert len(losses) == 1
+        assert torch.isfinite(torch.tensor(losses[0]))

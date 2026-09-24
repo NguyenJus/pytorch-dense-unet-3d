@@ -32,7 +32,12 @@ dataset:
 training:
   optimizer: SGD
   learning_rate: 0.01
-  epochs: 50
+  epochs: 50  # Used only by the single-phase Python train() API.
+  # CLI train uses the cascaded schedule below; each step is one mini-batch.
+  phase_a_epochs: 100
+  phase_a_steps_per_epoch: 10
+  phase_b_epochs: 1000
+  phase_b_steps_per_epoch: 10
   momentum: 0.5
   use_scheduler: True
   scheduler: StepLR

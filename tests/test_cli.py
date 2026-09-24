@@ -337,7 +337,47 @@ class TestPredictCommand:
 
             output_path = os.path.join(tmp, "seg.nii.gz")
 
-            _run_cli(
+            result = _run_cli(
+                "predict",
+                "--config",
+                config_path,
+                "--checkpoint",
+                ckpt_path,
+                "--input",
+                input_path,
+                "--output",
+                output_path,
+            )
+            assert result.returncode == 0, result.stderr
+            assert os.path.isfile(output_path)
+            seg = nib.load(output_path)
+            data = seg.get_fdata()
+            # Segmentation must be 3D (H, W, D) with values in {0, 1, 2}
+            assert data.ndim == 3, f"Expected 3D segmentation, got shape {data.shape}"
+            unique = np.unique(data)
+            assert set(unique).issubset({0, 1, 2}), (
+                f"Segmentation contains unexpected labels: {unique}"
+            )
+
+    def test_predict_preserves_input_spatial_affine(self) -> None:
+        """Resizing for the model must not change the saved label-map geometry."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _tiny_config(tmp)
+            config_path = os.path.join(tmp, "tiny.yaml")
+            _write_config(config_path, cfg)
+            ckpt_path = os.path.join(tmp, "checkpoint.pt")
+            _write_checkpoint(ckpt_path, _TinyModel())
+            affine = np.array(
+                [[2.0, 0.0, 0.0, 10.0], [0.0, 3.0, 0.0, -4.0], [0.0, 0.0, 4.0, 7.0], [0, 0, 0, 1]]
+            )
+            input_path = os.path.join(tmp, "input.nii.gz")
+            input_img = nib.Nifti1Image(np.zeros((16, 12, 6), dtype=np.float32), affine)
+            input_img.set_qform(affine, code=2)
+            input_img.set_sform(affine, code=3)
+            nib.save(input_img, input_path)
+            output_path = os.path.join(tmp, "seg.nii.gz")
+
+            result = _run_cli(
                 "predict",
                 "--config",
                 config_path,
@@ -349,15 +389,11 @@ class TestPredictCommand:
                 output_path,
             )
 
-            if os.path.isfile(output_path):
-                seg = nib.load(output_path)
-                data = seg.get_fdata()
-                # Segmentation must be 3D (H, W, D) with values in {0, 1, 2}
-                assert data.ndim == 3, f"Expected 3D segmentation, got shape {data.shape}"
-                unique = np.unique(data)
-                assert set(unique).issubset({0, 1, 2}), (
-                    f"Segmentation contains unexpected labels: {unique}"
-                )
+            assert result.returncode == 0, result.stderr
+            output_img = nib.load(output_path)
+            np.testing.assert_allclose(output_img.affine, affine)
+            assert output_img.get_qform(coded=True)[1] == 2
+            assert output_img.get_sform(coded=True)[1] == 3
 
     def test_predict_requires_input(self) -> None:
         """predict without --input must exit non-zero."""
@@ -434,6 +470,33 @@ class TestPredictResizesToModelContract:
             assert seg.get_fdata().shape == orig_hwd, (
                 f"Segmentation shape {seg.get_fdata().shape} != original input {orig_hwd}"
             )
+
+    def test_predict_rejects_config_without_training_resize(self) -> None:
+        """Inference cannot silently use a resize that the configured training omitted."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _tiny_config(tmp)
+            cfg["dataset"] = {"resize_img": False}
+            config_path = os.path.join(tmp, "tiny.yaml")
+            _write_config(config_path, cfg)
+            ckpt_path = os.path.join(tmp, "checkpoint.pt")
+            _write_checkpoint(ckpt_path, _TinyModel())
+            input_path = os.path.join(tmp, "input.nii.gz")
+            _write_nifti(input_path)
+
+            result = _run_cli(
+                "predict",
+                "--config",
+                config_path,
+                "--checkpoint",
+                ckpt_path,
+                "--input",
+                input_path,
+                "--output",
+                os.path.join(tmp, "seg.nii.gz"),
+            )
+
+            assert result.returncode != 0
+            assert "resize_img" in result.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -550,3 +613,41 @@ class TestNoHardcodedConfigPath:
             f"main.py still hardcodes the config path '{hardcoded}'. "
             "This must be removed — use --config CLI arg instead."
         )
+
+
+@pytest.mark.parametrize("clamp_hu", [False, True])
+def test_predict_uses_configured_intensity_preprocessing(tmp_path, monkeypatch, clamp_hu):
+    from argparse import Namespace
+
+    from dense_unet_3d import cli
+
+    config = _tiny_config(str(tmp_path))
+    config["dataset"] = {
+        "clamp_hu": clamp_hu,
+        "clamp_hu_range": {"min": -10, "max": 10},
+        "resize_img": True,
+        "resize_dims": {"D": 2, "H": 3, "W": 4},
+    }
+    config_path = tmp_path / "config.yaml"
+    _write_config(str(config_path), config)
+    data = np.arange(24, dtype=np.float32).reshape(3, 4, 2) * 10 - 100
+    input_path = tmp_path / "input.nii.gz"
+    nib.save(nib.Nifti1Image(data, np.eye(4)), input_path)
+    captured = []
+
+    class CaptureInput(nn.Module):
+        def forward(self, volume):
+            captured.append(volume.detach().cpu())
+            return torch.zeros(1, 3, *volume.shape[2:])
+
+    monkeypatch.setattr(cli, "_load_model_from_checkpoint", lambda *_: CaptureInput())
+    cli._cmd_predict(
+        Namespace(
+            config=str(config_path),
+            checkpoint="unused.pt",
+            input=str(input_path),
+            output=str(tmp_path / "nested" / "seg.nii.gz"),
+        )
+    )
+    expected = np.clip(data, -10, 10) if clamp_hu else data
+    torch.testing.assert_close(captured[0], torch.from_numpy(expected).permute(2, 0, 1)[None, None])

@@ -38,7 +38,7 @@ jobs:
         run: ruff format --check .
 
       - name: mypy
-        run: mypy dense_unet_3d/ 2>&1 | grep -E "^.*error:.*$" || true
+        run: mypy dense_unet_3d/
 
       - name: pytest -q
         run: pytest -q
