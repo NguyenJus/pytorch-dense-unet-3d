@@ -26,16 +26,16 @@ import numpy as np
 import pytest
 import torch
 
-from dense_unet_3d.dataset.LITSDataset import LITSDataset
+from dense_unet_3d.dataset.LITSDataset import LITSDataset, preflight_pairs
 
 # ---------------------------------------------------------------------------
 # Helpers / local fixtures
 # ---------------------------------------------------------------------------
 
 
-def _write_nifti(path: Path, data: np.ndarray) -> None:
-    """Write a NIfTI file at *path* with an identity affine."""
-    img = nib.Nifti1Image(data, np.eye(4, dtype=np.float64))
+def _write_nifti(path: Path, data: np.ndarray, affine: np.ndarray | None = None) -> None:
+    """Write a NIfTI file at *path* with an identity affine by default."""
+    img = nib.Nifti1Image(data, np.eye(4, dtype=np.float64) if affine is None else affine)
     nib.save(img, str(path))
 
 
@@ -170,6 +170,59 @@ class TestLen:
         _write_nifti(tmp_path / "segmentation0.nii", segmentation)
         with pytest.raises(ValueError, match="must be 3-D"):
             LITSDataset(img_dirs=[str(tmp_path)])[0]
+
+    def test_float_header_rounding_within_one_tenth_micrometre_is_accepted(
+        self, tmp_path: Path
+    ) -> None:
+        """Equivalent float32 NIfTI grids must not fail on serialization noise."""
+        volume = np.zeros((8, 6, 4), dtype=np.float32)
+        segmentation = np.zeros((8, 6, 4), dtype=np.int16)
+        affine = np.eye(4, dtype=np.float64)
+        seg_affine = affine.copy()
+        seg_affine[2, 3] += 5e-5
+        _write_nifti(tmp_path / "volume0.nii", volume, affine)
+        _write_nifti(tmp_path / "segmentation0.nii", segmentation, seg_affine)
+        image, mask = LITSDataset(img_dirs=[str(tmp_path)])[0]
+        assert image.shape == mask.shape
+
+    def test_preflight_reports_every_invalid_pair(self, tmp_path: Path) -> None:
+        """Preflight gives all bad cases before a run instead of failing late."""
+        volume = np.zeros((8, 6, 4), dtype=np.float32)
+        segmentation = np.zeros((8, 6, 4), dtype=np.int16)
+        bad_affine = np.eye(4, dtype=np.float64)
+        bad_affine[0, 3] = 1.0
+        pairs: list[tuple[str, str]] = []
+        for case in ("0", "1"):
+            vol_path = tmp_path / f"volume{case}.nii"
+            seg_path = tmp_path / f"segmentation{case}.nii"
+            _write_nifti(vol_path, volume)
+            _write_nifti(seg_path, segmentation, bad_affine)
+            pairs.append((str(vol_path), str(seg_path)))
+        with pytest.raises(ValueError, match="2 of 2 pairs") as exc_info:
+            preflight_pairs(pairs, split_name="validation split")
+        assert "volume0.nii" in str(exc_info.value)
+        assert "volume1.nii" in str(exc_info.value)
+
+    def test_near_integer_mask_label_is_rejected_exactly(self, tmp_path: Path) -> None:
+        """A tolerance must not silently turn fractional labels into classes."""
+        volume = np.zeros((8, 6, 4), dtype=np.float32)
+        segmentation = np.zeros((8, 6, 4), dtype=np.float32)
+        segmentation[0, 0, 0] = 1.00000894
+        _write_nifti(tmp_path / "volume0.nii", volume)
+        _write_nifti(tmp_path / "segmentation0.nii", segmentation)
+        with pytest.raises(ValueError, match="finite integers"):
+            LITSDataset(img_dirs=[str(tmp_path)])[0]
+
+    def test_full_decode_rejects_nonfinite_ct_values(self, tmp_path: Path) -> None:
+        volume = np.zeros((8, 6, 4), dtype=np.float32)
+        volume[0, 0, 0] = np.nan
+        segmentation = np.zeros((8, 6, 4), dtype=np.int16)
+        vol_path = tmp_path / "volume0.nii"
+        seg_path = tmp_path / "segmentation0.nii"
+        _write_nifti(vol_path, volume)
+        _write_nifti(seg_path, segmentation)
+        with pytest.raises(ValueError, match="must all be finite"):
+            preflight_pairs([(str(vol_path), str(seg_path))], full_decode=True)
 
 
 # ---------------------------------------------------------------------------

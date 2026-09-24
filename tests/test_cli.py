@@ -141,6 +141,7 @@ class TestHelp:
         result = _run_cli("--help")
         output = result.stdout + result.stderr
         assert "train" in output, f"'train' not in help output: {output}"
+        assert "preflight" in output, f"'preflight' not in help output: {output}"
         assert "eval" in output, f"'eval' not in help output: {output}"
         assert "predict" in output, f"'predict' not in help output: {output}"
 
@@ -157,6 +158,13 @@ class TestHelp:
             f"eval --help exited {result.returncode}\nstderr: {result.stderr}"
         )
         assert "--config" in result.stdout + result.stderr, "--config not in eval --help output"
+
+    def test_preflight_subcommand_help(self) -> None:
+        result = _run_cli("preflight", "--help")
+        assert result.returncode == 0, (
+            f"preflight --help exited {result.returncode}\nstderr: {result.stderr}"
+        )
+        assert "--full-decode" in result.stdout + result.stderr
 
     def test_predict_subcommand_help(self) -> None:
         result = _run_cli("predict", "--help")

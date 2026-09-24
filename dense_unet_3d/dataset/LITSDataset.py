@@ -11,8 +11,14 @@ from typing import Any, cast
 import nibabel as nib
 import numpy as np
 import torch
+from nibabel.filebasedimages import ImageFileError
 from nibabel.spatialimages import SpatialImage
 from torch.utils.data import Dataset
+
+# NIfTI affine fields are commonly stored as float32.  This per-coefficient
+# tolerance accepts serialization noise while remaining far below LiTS voxel
+# spacings, including across the field of view, and rejects grid changes.
+AFFINE_ATOL_MM = 1e-4
 
 
 def _case_id(path: str, prefix: str) -> str:
@@ -65,6 +71,86 @@ def discover_pairs(img_dirs: list[str]) -> list[tuple[str, str]]:
             f"missing volumes: {missing_volumes})"
         )
     return [(volumes[case_id], segmentations[case_id]) for case_id in sorted(volumes)]
+
+
+def validate_pair(
+    volume_path: str,
+    segmentation_path: str,
+    *,
+    full_decode: bool = False,
+) -> None:
+    """Validate that one labelled NIfTI pair represents one spatial grid.
+
+    ``full_decode=False`` checks headers only and does not materialize voxel
+    data.  With ``full_decode=True``, both volumes are decoded; CT values must
+    be finite and segmentation values must satisfy the LiTS label contract.
+    """
+    vol_img = cast(SpatialImage, nib.load(volume_path))
+    seg_img = cast(SpatialImage, nib.load(segmentation_path))
+    _validate_spatial_pair(vol_img, seg_img, volume_path)
+    if full_decode:
+        volume = vol_img.get_fdata(dtype=np.float32, caching="unchanged")
+        if not np.all(np.isfinite(volume)):
+            raise ValueError(f"image values for {volume_path} must all be finite")
+        del volume
+        _validate_segmentation_labels(np.asanyarray(seg_img.dataobj), segmentation_path)
+
+
+def _validate_spatial_pair(vol_img: SpatialImage, seg_img: SpatialImage, volume_path: str) -> None:
+    """Validate shape and physical grid for NIfTI images already loaded."""
+    if vol_img.shape != seg_img.shape:
+        raise ValueError(
+            f"image/mask shape mismatch for {volume_path}: {vol_img.shape} != {seg_img.shape}"
+        )
+    if len(vol_img.shape) != 3:
+        raise ValueError(
+            f"image/mask volumes for {volume_path} must be 3-D; got shape {vol_img.shape}"
+        )
+    affine_delta = float(np.max(np.abs(vol_img.affine - seg_img.affine)))
+    if not np.allclose(vol_img.affine, seg_img.affine, rtol=0.0, atol=AFFINE_ATOL_MM):
+        raise ValueError(
+            f"image/mask affine mismatch for {volume_path}; maximum matrix difference "
+            f"is {affine_delta:.6g} mm (tolerance {AFFINE_ATOL_MM:g} mm), so they "
+            "are not on the same spatial grid"
+        )
+
+
+def _validate_segmentation_labels(segmentation: np.ndarray, segmentation_path: str) -> None:
+    """Require finite, exact LiTS class IDs without a tolerance band."""
+    if (
+        not np.all(np.isfinite(segmentation))
+        or not np.all(segmentation == np.floor(segmentation))
+        or not np.all((segmentation >= 0) & (segmentation <= 2))
+    ):
+        raise ValueError(
+            f"segmentation labels for {segmentation_path} must be finite integers in {{0, 1, 2}}"
+        )
+
+
+def preflight_pairs(
+    pairs: list[tuple[str, str]], *, full_decode: bool = False, split_name: str = "dataset"
+) -> int:
+    """Validate every pair and report all bad cases before a training run.
+
+    Header-only validation is fast and avoids reading voxels.  Full decoding
+    validates finite CT values and segmentation values, and is used by ``train``.
+    """
+    if not pairs:
+        raise ValueError(f"{split_name} contains no volume/segmentation pairs")
+    errors: list[str] = []
+    for volume_path, segmentation_path in pairs:
+        try:
+            validate_pair(volume_path, segmentation_path, full_decode=full_decode)
+        except (OSError, ValueError, ImageFileError) as exc:
+            errors.append(str(exc))
+    if errors:
+        detail = "\n  - ".join(errors)
+        coverage = "full decode" if full_decode else "headers only"
+        raise ValueError(
+            f"{split_name} preflight failed for {len(errors)} of {len(pairs)} pairs "
+            f"({coverage}):\n  - {detail}"
+        )
+    return len(pairs)
 
 
 class LITSDataset(Dataset):
@@ -184,29 +270,11 @@ class LITSDataset(Dataset):
         # Cast to SpatialImage so mypy knows get_fdata() is available.
         vol_img = cast(SpatialImage, nib.load(self.volume_img_paths[idx]))
         seg_img = cast(SpatialImage, nib.load(self.segmentation_img_paths[idx]))
-        volume: np.ndarray = np.asarray(vol_img.get_fdata(), dtype=np.float32)
-        segmentation: np.ndarray = np.asarray(seg_img.get_fdata(), dtype=np.float32)
-        if volume.shape != segmentation.shape:
-            raise ValueError(
-                f"image/mask shape mismatch for {self.volume_img_paths[idx]}: "
-                f"{volume.shape} != {segmentation.shape}"
-            )
-        if volume.ndim != 3:
-            raise ValueError(
-                f"image/mask volumes for {self.volume_img_paths[idx]} must be 3-D; "
-                f"got shape {volume.shape}"
-            )
-        if not np.allclose(vol_img.affine, seg_img.affine, rtol=0.0, atol=1e-5):
-            raise ValueError(
-                f"image/mask affine mismatch for {self.volume_img_paths[idx]}; "
-                "they are not on the same spatial grid"
-            )
-        if not np.all(np.isclose(segmentation, np.round(segmentation))) or not np.all(
-            (segmentation >= 0) & (segmentation <= 2)
-        ):
-            raise ValueError(
-                f"segmentation labels for {self.segmentation_img_paths[idx]} must be integers in {{0, 1, 2}}"
-            )
+        _validate_spatial_pair(vol_img, seg_img, self.volume_img_paths[idx])
+        volume: np.ndarray = vol_img.get_fdata(dtype=np.float32, caching="unchanged")
+        raw_segmentation = np.asanyarray(seg_img.dataobj)
+        _validate_segmentation_labels(raw_segmentation, self.segmentation_img_paths[idx])
+        segmentation: np.ndarray = np.asarray(raw_segmentation, dtype=np.float32)
 
         # Keep NIfTI's HWD order until ReshapeTensor converts it once to CDHW.
         # Cropping operates depth-first, so temporarily transpose only for it.

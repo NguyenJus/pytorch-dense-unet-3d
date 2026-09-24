@@ -145,9 +145,10 @@ def _load_model_from_checkpoint(
 def _cmd_train(args: argparse.Namespace) -> None:
     """``dense-unet-3d train --config <path> [--dry-run]``."""
     config = _load_config(args.config)
-    device = _device_from_config(config)
 
     if args.dry_run:
+        device = _device_from_config(config)
+
         # Dry-run: use a tiny synthetic dataloader and a stub model.
         class _TinyModel(nn.Module):
             def __init__(self) -> None:
@@ -163,9 +164,13 @@ def _cmd_train(args: argparse.Namespace) -> None:
         phase_b_train_loader = _make_dry_run_loader()
         phase_b_val_loader = _make_dry_run_loader()
     else:
-        from dense_unet_3d.dataset.prepare_dataset import prepare_dataloader
+        from dense_unet_3d.dataset.prepare_dataset import preflight_config, prepare_dataloader
         from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
 
+        # Decode every configured mask before allocating the model or touching
+        # CUDA.  A malformed late validation case must not waste a training run.
+        preflight_config(config, full_decode=True)
+        device = _device_from_config(config)
         model = DenseUNet3d()
         phase_a_train_loader = prepare_dataloader(config, train=True, detect_tumors=False)
         phase_a_val_loader = prepare_dataloader(config, train=False, detect_tumors=False)
@@ -186,6 +191,18 @@ def _cmd_train(args: argparse.Namespace) -> None:
     sys.stdout.write("Training complete.\n")
     sys.stdout.write(f"  Phase A best epoch : {result['phase_a']['best_epoch']}\n")
     sys.stdout.write(f"  Phase B best epoch : {result['phase_b']['best_epoch']}\n")
+
+
+def _cmd_preflight(args: argparse.Namespace) -> None:
+    """``dense-unet-3d preflight --config <path> [--full-decode]``."""
+    from dense_unet_3d.dataset.prepare_dataset import preflight_config
+
+    counts = preflight_config(_load_config(args.config), full_decode=args.full_decode)
+    coverage = "full decode" if args.full_decode else "headers only"
+    sys.stdout.write(
+        f"Preflight passed ({coverage}): {counts['train']} training and "
+        f"{counts['validation']} validation pairs.\n"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +317,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="dense-unet-3d",
         description=(
             "3D-DenseUNet-569 — reduced-depth 3-D medical image segmentation. "
-            "Use a subcommand: train, eval, or predict."
+            "Use a subcommand: train, preflight, eval, or predict."
         ),
     )
     parser.add_argument(
@@ -326,6 +343,22 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="PATH",
         help="Path to YAML config file (no hardcoded cwd dependence).",
+    )
+
+    # -- preflight ------------------------------------------------------------
+    preflight_parser = subparsers.add_parser(
+        "preflight",
+        help="Validate configured training and validation NIfTI pairs.",
+        description="Audit all configured labelled NIfTI pairs without creating a model or using CUDA.",
+    )
+    preflight_parser.add_argument(
+        "--config", required=True, metavar="PATH", help="Path to YAML config file."
+    )
+    preflight_parser.add_argument(
+        "--full-decode",
+        action="store_true",
+        default=False,
+        help="Also decode CT and mask voxels; require finite CTs and labels in {0, 1, 2}.",
     )
     train_parser.add_argument(
         "--dry-run",
@@ -414,6 +447,8 @@ def main() -> None:
 
     if args.command == "train":
         _cmd_train(args)
+    elif args.command == "preflight":
+        _cmd_preflight(args)
     elif args.command == "eval":
         _cmd_eval(args)
     elif args.command == "predict":
