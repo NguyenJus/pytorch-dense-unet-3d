@@ -85,8 +85,13 @@ class LITSDataset(Dataset):
         When *True*, depth slices that contain no liver/tumour voxels are
         removed before transforms are applied.
     transform:
-        Optional callable applied to the **image** numpy array after the
-        (H, W, D) → (D, H, W) transpose, before tensor conversion.
+        Optional callable applied to the **image** numpy array in NIfTI
+        ``(H, W, D)`` order, before tensor conversion.
+    mask_transform:
+        Optional callable applied only to the mask.  Supply an explicit
+        mask-safe spatial pipeline (for example, nearest-neighbour resize)
+        whenever ``transform`` changes image geometry.  The image transform
+        is never applied to the mask.
     paired_transform:
         Optional callable applied to ``(image_tensor, mask_tensor)`` pairs —
         used for random augmentations that must be identical on both.
@@ -107,7 +112,6 @@ class LITSDataset(Dataset):
 
         self.transform = transform
         # Mask-specific transform path (nearest-neighbour resize, no HU clamp).
-        # Falls back to ``transform`` only if no dedicated mask path is given.
         self.mask_transform = mask_transform
         self.paired_transform = paired_transform
         self.detect_tumors = detect_tumors
@@ -187,6 +191,11 @@ class LITSDataset(Dataset):
                 f"image/mask shape mismatch for {self.volume_img_paths[idx]}: "
                 f"{volume.shape} != {segmentation.shape}"
             )
+        if volume.ndim != 3:
+            raise ValueError(
+                f"image/mask volumes for {self.volume_img_paths[idx]} must be 3-D; "
+                f"got shape {volume.shape}"
+            )
         if not np.allclose(vol_img.affine, seg_img.affine, rtol=0.0, atol=1e-5):
             raise ValueError(
                 f"image/mask affine mismatch for {self.volume_img_paths[idx]}; "
@@ -214,12 +223,11 @@ class LITSDataset(Dataset):
         seg_out: Any = seg_arr
         if self.transform:
             vol_out = self.transform(vol_out)
-        # The mask MUST use its own nearest-neighbour pipeline so integer
-        # labels are never averaged by trilinear interpolation, and is never
-        # HU-clamped.  Fall back to ``transform`` only if no mask path exists.
-        seg_transform = self.mask_transform if self.mask_transform is not None else self.transform
-        if seg_transform:
-            seg_out = seg_transform(seg_out)
+        # The image pipeline is intentionally never reused for masks: it may
+        # include HU processing or continuous interpolation.  Callers that
+        # change image geometry must provide an explicit mask-safe pipeline.
+        if self.mask_transform:
+            seg_out = self.mask_transform(seg_out)
 
         # Convert to tensors if not already done by transforms.
         if not isinstance(vol_out, torch.Tensor):
@@ -230,6 +238,13 @@ class LITSDataset(Dataset):
         # Ensure float32 image, long mask.
         image: torch.Tensor = vol_out.float()
         mask: torch.Tensor = seg_out
+
+        if image.shape[-3:] != mask.shape[-3:]:
+            raise ValueError(
+                "image and mask spatial shapes differ after transforms: "
+                f"{tuple(image.shape[-3:])} != {tuple(mask.shape[-3:])}; "
+                "provide a matching mask_transform for geometry-changing image transforms"
+            )
 
         if self.paired_transform:
             image, mask = self.paired_transform((image, mask))

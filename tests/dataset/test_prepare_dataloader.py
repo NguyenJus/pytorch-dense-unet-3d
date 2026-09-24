@@ -15,6 +15,7 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 import pytest
+import torch
 from torch.utils.data import RandomSampler, SequentialSampler
 
 from dense_unet_3d.dataset.prepare_dataset import compose_transforms, prepare_dataloader
@@ -89,6 +90,24 @@ class TestValLoaderDeterministic:
 
         loader = prepare_dataloader(_config(str(tmp_path)), train=True)
         assert isinstance(loader.sampler, RandomSampler)
+
+    def test_liver_only_loader_collapses_tumour_label(self, tmp_path: Path) -> None:
+        """Phase A loaders fold class 2 into class 1; Phase B loaders retain it."""
+        vol = np.zeros((16, 12, 4), dtype=np.float32)
+        seg = np.zeros((16, 12, 4), dtype=np.int16)
+        seg[0, 0, 0] = 1
+        seg[1, 1, 1] = 2
+        _write_nifti(tmp_path / "volume0.nii", vol)
+        _write_nifti(tmp_path / "segmentation0.nii", seg)
+
+        cfg = _config(str(tmp_path))
+        cfg["dataset"]["resize_img"] = False
+        phase_a_labels = next(iter(prepare_dataloader(cfg, train=True, detect_tumors=False)))[1]
+        phase_b_labels = next(iter(prepare_dataloader(cfg, train=True)))[1]
+
+        assert 2 not in torch.unique(phase_a_labels).tolist()
+        assert 1 in torch.unique(phase_a_labels).tolist()
+        assert 2 in torch.unique(phase_b_labels).tolist()
 
 
 class TestValLoaderFromTestDirs:

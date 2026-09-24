@@ -67,6 +67,8 @@ def _make_dry_run_loader(
     d: int = 4,
     h: int = 8,
     w: int = 8,
+    *,
+    detect_tumors: bool = True,
 ) -> Any:
     """Return a DataLoader with synthetic tensors (CPU, no real NIfTI needed)."""
     from torch.utils.data import DataLoader, TensorDataset
@@ -74,6 +76,8 @@ def _make_dry_run_loader(
     torch.manual_seed(0)
     volumes = torch.randn(batch_size, 1, d, h, w)
     labels = torch.randint(0, 3, (batch_size, 1, d, h, w))
+    if not detect_tumors:
+        labels = labels.clamp(max=1)
     ds = TensorDataset(volumes, labels)
     return DataLoader(ds, batch_size=batch_size)
 
@@ -154,19 +158,31 @@ def _cmd_train(args: argparse.Namespace) -> None:
                 return self.conv(x)  # type: ignore[no-any-return]
 
         model: nn.Module = _TinyModel()
-        train_loader = _make_dry_run_loader()
-        val_loader = _make_dry_run_loader()
+        phase_a_train_loader = _make_dry_run_loader(detect_tumors=False)
+        phase_a_val_loader = _make_dry_run_loader(detect_tumors=False)
+        phase_b_train_loader = _make_dry_run_loader()
+        phase_b_val_loader = _make_dry_run_loader()
     else:
         from dense_unet_3d.dataset.prepare_dataset import prepare_dataloader
         from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
 
         model = DenseUNet3d()
-        train_loader = prepare_dataloader(config, train=True)
-        val_loader = prepare_dataloader(config, train=False)
+        phase_a_train_loader = prepare_dataloader(config, train=True, detect_tumors=False)
+        phase_a_val_loader = prepare_dataloader(config, train=False, detect_tumors=False)
+        phase_b_train_loader = prepare_dataloader(config, train=True, detect_tumors=True)
+        phase_b_val_loader = prepare_dataloader(config, train=False, detect_tumors=True)
 
     from dense_unet_3d.training.cascaded_driver import run_cascaded_training
 
-    result = run_cascaded_training(config, model, device, train_loader, val_loader=val_loader)
+    result = run_cascaded_training(
+        config,
+        model,
+        device,
+        phase_a_train_loader,
+        val_loader=phase_a_val_loader,
+        phase_b_train_loader=phase_b_train_loader,
+        phase_b_val_loader=phase_b_val_loader,
+    )
     sys.stdout.write("Training complete.\n")
     sys.stdout.write(f"  Phase A best epoch : {result['phase_a']['best_epoch']}\n")
     sys.stdout.write(f"  Phase B best epoch : {result['phase_b']['best_epoch']}\n")

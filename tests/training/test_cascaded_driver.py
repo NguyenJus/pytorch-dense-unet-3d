@@ -534,6 +534,47 @@ class TestRunCascadedTraining:
         for v in all_losses:
             assert torch.isfinite(torch.tensor(v)), f"Non-finite loss encountered: {v}"
 
+    def test_phase_a_folds_tumours_for_training_and_validation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Phase A uses liver-only labels while Phase B preserves tumour labels."""
+        labels_seen_by_loss: list[torch.Tensor] = []
+        labels_seen_by_validation: list[torch.Tensor] = []
+
+        class RecordingCriterion(nn.Module):
+            def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+                labels_seen_by_loss.append(target.detach().cpu().clone())
+                return nn.functional.cross_entropy(logits, target)
+
+        def record_evaluate(
+            _model: nn.Module, _device: torch.device, loader: DataLoader
+        ) -> dict[str, float]:
+            labels_seen_by_validation.append(next(iter(loader))[1].detach().cpu().clone())
+            return {"liver_per_case": 0.5, "tumor_per_case": 0.5}
+
+        monkeypatch.setattr(
+            cascaded_mod, "get_criterion", lambda _cfg, device: RecordingCriterion()
+        )
+        monkeypatch.setattr("dense_unet_3d.evaluation.evaluate.evaluate", record_evaluate)
+
+        volumes = torch.randn(1, 1, 2, 2, 2)
+        labels = torch.tensor([[[[0, 1], [2, 0]], [[1, 2], [0, 0]]]])
+        loader = DataLoader(TensorDataset(volumes, labels), batch_size=1)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _base_cfg(tmp, use_scheduler=False)
+            cfg["training"].update(
+                phase_a_epochs=1,
+                phase_a_steps_per_epoch=1,
+                phase_b_epochs=1,
+                phase_b_steps_per_epoch=1,
+            )
+            run_cascaded_training(cfg, _TinyModel(), torch.device("cpu"), loader, val_loader=loader)
+
+        assert 2 not in torch.unique(labels_seen_by_loss[0]).tolist()
+        assert 2 in torch.unique(labels_seen_by_loss[1]).tolist()
+        assert 2 not in torch.unique(labels_seen_by_validation[0]).tolist()
+        assert 2 in torch.unique(labels_seen_by_validation[1]).tolist()
+
     def test_steps_per_epoch_is_configurable(self) -> None:
         """steps_per_epoch comes from config, not hardcoded."""
         model = _TinyModel()

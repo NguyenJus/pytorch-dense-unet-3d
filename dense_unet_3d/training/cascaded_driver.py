@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import os
 import warnings
+from collections.abc import Iterator
 from typing import Any
 
 import numpy as np
@@ -69,6 +70,17 @@ __all__ = [
 
 # Default mini-batch updates per epoch; the paper leaves this interpretation underspecified.
 DEFAULT_STEPS_PER_EPOCH: int = 10
+
+
+class _LiverOnlyLoader:
+    """Yield a loader's batches with tumour labels folded into liver labels."""
+
+    def __init__(self, loader: DataLoader) -> None:
+        self._loader = loader
+
+    def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
+        for volume, segmentation in self._loader:
+            yield volume, segmentation.clamp(max=1)
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +273,8 @@ def run_phase_a(
     device:
         CPU or CUDA device.
     train_loader:
-        DataLoader for the training split.
+        DataLoader for the training split. Tumour labels are collapsed to liver
+        labels for this liver-only phase.
     val_loader:
         Optional DataLoader for validation Dice computation each epoch.
 
@@ -295,12 +308,15 @@ def run_phase_a(
     best_metrics: dict[str, float] = {}
     selected_best = False
 
+    liver_only_train_loader = _LiverOnlyLoader(train_loader)
+    liver_only_val_loader = _LiverOnlyLoader(val_loader) if val_loader is not None else None
+
     for epoch in tqdm(range(1, total_epochs + 1), desc="Phase A", position=0, leave=True):
         epoch_loss = _run_epoch(
             config=config,
             model=model,
             device=device,
-            loader=train_loader,
+            loader=liver_only_train_loader,  # type: ignore[arg-type]
             optimizer=optimizer,
             steps_per_epoch=steps_per_epoch,
         )
@@ -311,11 +327,11 @@ def run_phase_a(
 
         # Compute val Dice for best-checkpoint tracking.
         metrics: dict[str, float] = {"train_loss": epoch_loss}
-        if val_loader is not None:
+        if liver_only_val_loader is not None:
             from dense_unet_3d.evaluation.evaluate import evaluate  # lazy import
 
             model.eval()
-            val_metrics = evaluate(model, device, val_loader)
+            val_metrics = evaluate(model, device, liver_only_val_loader)  # type: ignore[arg-type]
             metrics.update(val_metrics)
             val_dice = float(val_metrics.get("liver_per_case", 0.0))
         else:
@@ -521,6 +537,9 @@ def run_cascaded_training(
     device: torch.device,
     train_loader: DataLoader,
     val_loader: DataLoader | None = None,
+    *,
+    phase_b_train_loader: DataLoader | None = None,
+    phase_b_val_loader: DataLoader | None = None,
 ) -> dict[str, Any]:
     """Full cascaded two-phase training driver.
 
@@ -532,14 +551,21 @@ def run_cascaded_training(
     config:
         Run configuration dict.
     model:
-        Model to train.  Phase A trains from this state; Phase B creates a
-        fresh copy of the same architecture and reloads Phase A best.
+        Model to train. Phase A trains this instance; Phase B reloads Phase A
+        best weights into the same instance before training.
     device:
         CPU or CUDA device.
     train_loader:
         DataLoader for training split.
     val_loader:
-        Optional validation DataLoader.
+        Optional Phase A validation DataLoader. Tumour labels are folded into
+        liver labels for Phase A training and validation.
+    phase_b_train_loader:
+        Optional Phase B training DataLoader. Defaults to ``train_loader``;
+        its tumour labels are preserved.
+    phase_b_val_loader:
+        Optional Phase B validation DataLoader. Defaults to ``val_loader``;
+        its tumour labels are preserved.
 
     Returns
     -------
@@ -562,15 +588,13 @@ def run_cascaded_training(
         val_loader=val_loader,
     )
 
-    # --- Phase B (fresh model reloads Phase A best) ---
-    # We instantiate a same-class model to avoid modifying Phase A's final state.
-    # For the driver we reuse the same model instance and reload weights.
+    # --- Phase B (reuse model instance and reload Phase A best) ---
     phase_b_result = run_phase_b(
         config,
         model,
         device,
-        train_loader,
-        val_loader=val_loader,
+        phase_b_train_loader if phase_b_train_loader is not None else train_loader,
+        val_loader=phase_b_val_loader if phase_b_val_loader is not None else val_loader,
         phase_a_best_path=phase_a_best_path,
     )
 

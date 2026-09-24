@@ -74,12 +74,19 @@ def compose_transforms(config: dict, train: bool = True) -> dict:
     }
 
 
-def prepare_dataset(config: dict, train: bool) -> LITSDataset:
+def prepare_dataset(
+    config: dict,
+    train: bool,
+    *,
+    detect_tumors: bool = True,
+) -> LITSDataset:
     """
     Builds the dataset based on user configuration
 
     :param config:  dictionary containing configuration instructions
     :param train:   boolean to tell whether to pull training or testing images
+    :param detect_tumors: when ``False``, collapse tumour label 2 to liver
+        label 1 for the Phase A liver-only task.
     :return:        a created LITSDataset class
     """
     if train:
@@ -116,6 +123,7 @@ def prepare_dataset(config: dict, train: bool) -> LITSDataset:
 
     dataset = LITSDataset(
         img_dirs,
+        detect_tumors=detect_tumors,
         transform=all_transforms,
         mask_transform=mask_transforms,
         paired_transform=paired_transforms,
@@ -124,15 +132,21 @@ def prepare_dataset(config: dict, train: bool) -> LITSDataset:
     return dataset
 
 
-def prepare_dataloader(config: dict, train: bool = True) -> DataLoader:
+def prepare_dataloader(
+    config: dict,
+    train: bool = True,
+    *,
+    detect_tumors: bool = True,
+) -> DataLoader:
     """
     Builds the dataloader class to pass into PyTorch
 
     :param config:  dictionary containing configuration instructions
     :param train:   boolean to tell whether to use train or test images
+    :param detect_tumors: when ``False``, return liver-only labels for Phase A.
     :return:        DataLoader class with dataset loaded
     """
-    dataset = prepare_dataset(config, train)
+    dataset = prepare_dataset(config, train, detect_tumors=detect_tumors)
     batch_size = config["dataset"]["batch_size"]
     # Never shuffle validation/test data — keeps evaluation deterministic.
     shuffle = config["dataset"]["shuffle"] if train else False
