@@ -80,6 +80,8 @@ Stop refuses unknown/stale/foreign ownership, preventing signals to unrelated PI
 Local Linux `/proc`, pidfds and a filesystem with working `flock`, atomic rename,
 file/directory `fsync` are required. Cross-host shared filesystem coordination is
 not supported.
+If Python omits its pidfd bindings, verified stop uses the corresponding libc
+functions. If neither interface is available, stop refuses to signal a numeric PID.
 
 `completed`, `user stopped`, `budget exhausted`, `failed` and `unknown` are
 separate durable terminal outcomes. Clean completion and requested stops exit
