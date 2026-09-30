@@ -125,7 +125,9 @@ def save_checkpoint(
         "epoch": epoch,
         "metrics": metrics,
     }
-    torch.save(ckpt, path)
+    from dense_unet_3d.training.runtime import atomic_checkpoint
+
+    atomic_checkpoint(path, ckpt)
 
 
 def load_checkpoint(
@@ -224,8 +226,14 @@ def _run_epoch(
         optimizer.zero_grad()
         logits = model(volume)
         loss = criterion(logits, segmentation)
+        if not torch.isfinite(loss):
+            raise FloatingPointError("Nonfinite training loss")
         loss.backward()
+        if any(p.grad is not None and not torch.isfinite(p.grad).all() for p in model.parameters()):
+            raise FloatingPointError("Nonfinite training gradients")
         optimizer.step()
+        if any(not torch.isfinite(p).all() for p in model.parameters()):
+            raise FloatingPointError("Nonfinite model parameters")
 
         running_loss += loss.item()
         count += 1
@@ -284,6 +292,12 @@ def run_phase_a(
         ``epoch_losses`` (list[float]), ``best_epoch`` (int),
         ``best_metrics`` (dict).
     """
+    warnings.warn(
+        "Standalone phase helpers do not provide exact resume, ownership or budgets; "
+        "use run_cascaded_training for managed runs.",
+        UserWarning,
+        stacklevel=2,
+    )
     run_name: str = config["pathing"]["run_name"]
     model_save_dir: str = config["pathing"]["model_save_dir"]
     phase_dir = os.path.join(model_save_dir, run_name, "phase_a")
@@ -419,6 +433,12 @@ def run_phase_b(
         ``loaded_phase_a_state_dict`` (dict — the state dict actually loaded,
         for test assertions).
     """
+    warnings.warn(
+        "Standalone phase helpers do not provide exact resume, ownership or budgets; "
+        "use run_cascaded_training for managed runs.",
+        UserWarning,
+        stacklevel=2,
+    )
     run_name: str = config["pathing"]["run_name"]
     model_save_dir: str = config["pathing"]["model_save_dir"]
     phase_dir = os.path.join(model_save_dir, run_name, "phase_b")
@@ -540,6 +560,8 @@ def run_cascaded_training(
     *,
     phase_b_train_loader: DataLoader | None = None,
     phase_b_val_loader: DataLoader | None = None,
+    session: Any = None,
+    resume: bool = False,
 ) -> dict[str, Any]:
     """Full cascaded two-phase training driver.
 
@@ -575,31 +597,18 @@ def run_cascaded_training(
         ``phase_b_loaded_phase_a_state_dict`` (the weights loaded into Phase B,
         for proof assertions in tests).
     """
-    run_name: str = config["pathing"]["run_name"]
-    model_save_dir: str = config["pathing"]["model_save_dir"]
-    phase_a_best_path = os.path.join(model_save_dir, run_name, "phase_a", "best.pt")
+    from dense_unet_3d.training.recovery import run_recoverable
+    from dense_unet_3d.training.runtime import RunSession
 
-    # --- Phase A ---
-    phase_a_result = run_phase_a(
-        config,
-        model,
-        device,
+    loaders = [
         train_loader,
-        val_loader=val_loader,
-    )
-
-    # --- Phase B (reuse model instance and reload Phase A best) ---
-    phase_b_result = run_phase_b(
-        config,
-        model,
-        device,
+        val_loader,
         phase_b_train_loader if phase_b_train_loader is not None else train_loader,
-        val_loader=phase_b_val_loader if phase_b_val_loader is not None else val_loader,
-        phase_a_best_path=phase_a_best_path,
-    )
-
-    return {
-        "phase_a": phase_a_result,
-        "phase_b": phase_b_result,
-        "phase_b_loaded_phase_a_state_dict": phase_b_result["loaded_phase_a_state_dict"],
-    }
+        phase_b_val_loader if phase_b_val_loader is not None else val_loader,
+    ]
+    if session is not None:
+        return run_recoverable(config, model, device, loaders, session)
+    with RunSession(config, resume=resume) as active:
+        result = run_recoverable(config, model, device, loaders, active)
+        active.finish(result["terminal_reason"])
+        return result

@@ -40,6 +40,10 @@ Usage
 
 from __future__ import annotations
 
+import math
+import time
+from collections.abc import Callable
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -49,10 +53,18 @@ from dense_unet_3d.evaluation.dice_score import _binary_dice
 NUM_CLASSES = 3  # 0=background, 1=liver, 2=tumor
 
 
+class EvaluationInterrupted(RuntimeError):
+    """A bounded evaluation stopped; partial metrics are not a full-split result."""
+
+
 def evaluate(
     model: nn.Module,
     device: torch.device,
     val_loader: DataLoader,
+    *,
+    wall_seconds: float | None = None,
+    max_batches: int | None = None,
+    stop_requested: Callable[[], str | None] | None = None,
 ) -> dict[str, float]:
     """
     Evaluate *model* on the validation split and return Dice metrics.
@@ -84,6 +96,11 @@ def evaluate(
     ValueError
         If val_loader yields no batches (empty dataset).
     """
+    if wall_seconds is not None and (not math.isfinite(wall_seconds) or wall_seconds <= 0):
+        raise ValueError("evaluation wall_seconds must be finite and positive")
+    if max_batches is not None and max_batches < 1:
+        raise ValueError("evaluation max_batches must be positive")
+    deadline = time.monotonic() + wall_seconds if wall_seconds is not None else None
     model.eval()
 
     # Streaming aggregates — never hold all batches' full logits at once.
@@ -117,7 +134,23 @@ def evaluate(
     n_volumes = 0
 
     with torch.no_grad():
-        for volume, target in val_loader:
+        iterator = iter(val_loader)
+        batches = 0
+        while True:
+            reason = stop_requested() if stop_requested else None
+            if reason or (deadline is not None and time.monotonic() >= deadline):
+                raise EvaluationInterrupted(
+                    f"Evaluation stopped after {batches} batches: {reason or 'wall budget exhausted'}"
+                )
+            try:
+                volume, target = next(iterator)
+            except StopIteration:
+                break
+            if max_batches is not None and batches >= max_batches:
+                raise EvaluationInterrupted(
+                    f"Evaluation exceeded {max_batches} batches; full-split metrics withheld"
+                )
+            batches += 1
             volume = volume.to(device, dtype=torch.float32)
             # target shape: (N, 1, D, H, W) or (N, D, H, W)
             if target.dim() == 5:
@@ -126,6 +159,8 @@ def evaluate(
 
             logits = model(volume).cpu()  # (N, 3, D, H, W)
             target = target.cpu()
+            if not torch.isfinite(logits).all():
+                raise FloatingPointError("Nonfinite evaluation logits")
 
             hard_pred = logits.argmax(dim=1)  # (N, D, H, W)
 

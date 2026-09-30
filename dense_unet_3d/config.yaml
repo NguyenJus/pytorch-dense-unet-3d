@@ -49,6 +49,18 @@ training:
     liver: 1.2
     lesion: 2.2
 
+# Budgets count setup, training, validation, checkpoint I/O and optional final eval.
+# Set finite values for overnight allocations; null means explicitly unbounded.
+runtime:
+  wall_seconds: null
+  budget_seconds: null  # Persisted across resumes; cannot silently reset.
+  validation_every: 1  # Full validation on these epochs and each phase final epoch.
+  recovery_every: 1  # Supported recovery boundary: every completed epoch.
+  heartbeat_seconds: 10
+  max_retries: 0  # Failed/unknown attempts require explicit bounded recovery.
+  final_eval_wall_seconds: 300
+  final_eval_max_batches: 100
+
 gpu:
   use_gpu: True
   gpu_name: cuda:0
