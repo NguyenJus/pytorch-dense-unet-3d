@@ -22,8 +22,12 @@ config file supplied via ``--config``.
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import os
 import sys
+import time
+from pathlib import Path
 from typing import Any
 
 import nibabel as nib
@@ -73,9 +77,9 @@ def _make_dry_run_loader(
     """Return a DataLoader with synthetic tensors (CPU, no real NIfTI needed)."""
     from torch.utils.data import DataLoader, TensorDataset
 
-    torch.manual_seed(0)
-    volumes = torch.randn(batch_size, 1, d, h, w)
-    labels = torch.randint(0, 3, (batch_size, 1, d, h, w))
+    generator = torch.Generator().manual_seed(0)
+    volumes = torch.randn(batch_size, 1, d, h, w, generator=generator)
+    labels = torch.randint(0, 3, (batch_size, 1, d, h, w), generator=generator)
     if not detect_tumors:
         labels = labels.clamp(max=1)
     ds = TensorDataset(volumes, labels)
@@ -142,55 +146,205 @@ def _load_model_from_checkpoint(
 # ---------------------------------------------------------------------------
 
 
-def _cmd_train(args: argparse.Namespace) -> None:
-    """``dense-unet-3d train --config <path> [--dry-run]``."""
-    config = _load_config(args.config)
+def _positive_seconds(value: str) -> float:
+    seconds = float(value)
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError("must be a finite positive number of seconds")
+    return seconds
 
-    if args.dry_run:
-        device = _device_from_config(config)
 
-        # Dry-run: use a tiny synthetic dataloader and a stub model.
-        class _TinyModel(nn.Module):
-            def __init__(self) -> None:
-                super().__init__()
-                self.conv = nn.Conv3d(1, 3, kernel_size=1)
+def _positive_int(value: str) -> int:
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
 
-            def forward(self, x: torch.Tensor) -> torch.Tensor:
-                return self.conv(x)  # type: ignore[no-any-return]
 
-        model: nn.Module = _TinyModel()
-        phase_a_train_loader = _make_dry_run_loader(detect_tumors=False)
-        phase_a_val_loader = _make_dry_run_loader(detect_tumors=False)
-        phase_b_train_loader = _make_dry_run_loader()
-        phase_b_val_loader = _make_dry_run_loader()
-    else:
-        from dense_unet_3d.dataset.prepare_dataset import preflight_config, prepare_dataloader
-        from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
+def _print_training_plan(config: dict[str, Any], args: argparse.Namespace) -> None:
+    """Print before decoding data, creating a model or touching CUDA."""
+    from dense_unet_3d.training.runtime import describe_schedule
 
-        # Decode every configured mask before allocating the model or touching
-        # CUDA.  A malformed late validation case must not waste a training run.
-        preflight_config(config, full_decode=True)
-        device = _device_from_config(config)
-        model = DenseUNet3d()
-        phase_a_train_loader = prepare_dataloader(config, train=True, detect_tumors=False)
-        phase_a_val_loader = prepare_dataloader(config, train=False, detect_tumors=False)
-        phase_b_train_loader = prepare_dataloader(config, train=True, detect_tumors=True)
-        phase_b_val_loader = prepare_dataloader(config, train=False, detect_tumors=True)
-
-    from dense_unet_3d.training.cascaded_driver import run_cascaded_training
-
-    result = run_cascaded_training(
-        config,
-        model,
-        device,
-        phase_a_train_loader,
-        val_loader=phase_a_val_loader,
-        phase_b_train_loader=phase_b_train_loader,
-        phase_b_val_loader=phase_b_val_loader,
+    runtime = config.get("runtime", {})
+    schedule = describe_schedule(config)
+    wall = args.wall_seconds if args.wall_seconds is not None else runtime.get("wall_seconds")
+    budget = (
+        args.budget_seconds if args.budget_seconds is not None else runtime.get("budget_seconds")
     )
-    sys.stdout.write("Training complete.\n")
-    sys.stdout.write(f"  Phase A best epoch : {result['phase_a']['best_epoch']}\n")
-    sys.stdout.write(f"  Phase B best epoch : {result['phase_b']['best_epoch']}\n")
+    prior_seconds = 0.0
+    if args.command == "resume":
+        run_dir = Path(config["pathing"]["model_save_dir"]) / config["pathing"]["run_name"]
+        state_path = run_dir / "runtime.json"
+        if state_path.exists():
+            prior = json.loads(state_path.read_text())
+            if budget is None:
+                budget = prior["budget_seconds"]
+            prior_seconds = prior.get("cumulative_seconds", 0.0)
+    cadence = schedule["validation_every"]
+    for phase in schedule["phases"].values():
+        phase["validation_passes"] = (phase["epochs"] + cadence - 1) // cadence
+    sys.stdout.write("Resolved training plan:\n" + json.dumps(schedule, sort_keys=True) + "\n")
+    sys.stdout.write(
+        "Validation: full configured split on each scheduled validation; counts pending CPU preflight. "
+        "Best selection uses those validations.\n"
+        f"Invocation wall limit: {wall if wall is not None else 'unbounded'} seconds; "
+        f"persistent cumulative limit: {budget if budget is not None else 'unbounded'} seconds.\n"
+        "Accounting includes preflight, allocation, training, validation, checkpoint I/O "
+        "and requested final evaluation. Stop at a consistent epoch boundary.\n"
+        f"Previously charged runtime: {prior_seconds:.3f} seconds.\n"
+        "Stops: completion, budget exhausted, SIGINT/SIGTERM/user stopped, or failure. "
+        "No automatic restart. ETA is unknown until measured; the full schedule may exceed "
+        "this invocation's allocation.\n"
+    )
+    if args.final_eval:
+        sys.stdout.write(
+            f"Final evaluation: at most {runtime.get('final_eval_max_batches', 100)} batches, "
+            f"{runtime.get('final_eval_wall_seconds', 300)} seconds and remaining run budget.\n"
+        )
+    sys.stdout.flush()
+
+
+def _cmd_train(args: argparse.Namespace) -> None:
+    from dense_unet_3d.training.runtime import RunSession
+
+    config = _load_config(args.config)
+    _print_training_plan(config, args)
+    resume = args.command == "resume"
+    with RunSession(
+        config,
+        resume=resume,
+        wall_seconds=args.wall_seconds,
+        budget_seconds=args.budget_seconds,
+        recover=args.recover,
+        max_retries=args.max_retries,
+    ) as session:
+        session.event("setup", dry_run=args.dry_run)
+        remaining = (
+            session.budget_seconds - session.cumulative_seconds
+            if session.budget_seconds is not None
+            else None
+        )
+        sys.stdout.write(
+            f"Effective persistent budget: {session.budget_seconds}; "
+            f"charged: {session.cumulative_seconds:.3f}; remaining: {remaining} seconds.\n"
+        )
+        sys.stdout.flush()
+        reason = session.stop_reason()
+        if reason:
+            session.finish(reason)
+            sys.stdout.write(f"Training {reason}.\n")
+            return
+        if args.dry_run:
+            device = torch.device("cpu")
+            model: nn.Module = _TinyStub(nn.Conv3d(1, 3, kernel_size=1))
+            sys.stdout.write(
+                "Validation workload: 2 synthetic cases, 1 CPU batch per validation.\n"
+            )
+            phase_a_train_loader = _make_dry_run_loader(detect_tumors=False)
+            phase_a_val_loader = _make_dry_run_loader(detect_tumors=False)
+            phase_b_train_loader = _make_dry_run_loader()
+            phase_b_val_loader = _make_dry_run_loader()
+        else:
+            from dense_unet_3d.dataset.prepare_dataset import (
+                discover_pairs,
+                preflight_config,
+                prepare_dataloader,
+            )
+            from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
+
+            pairs = discover_pairs(config["pathing"]["test_img_dirs"])
+            batch_size = config["dataset"]["batch_size"]
+            sys.stdout.write(
+                f"Validation workload before preflight: {len(pairs)} cases, "
+                f"{math.ceil(len(pairs) / batch_size)} batches per validation.\n"
+            )
+            sys.stdout.flush()
+            counts = preflight_config(config, full_decode=True)
+            session.event("preflight_complete", **counts)
+            sys.stdout.write(f"Validation workload: {counts['validation']} cases per validation.\n")
+            reason = session.stop_reason()
+            if reason:
+                session.finish(reason)
+                sys.stdout.write(f"Training {reason} during preflight.\n")
+                return
+            device = _device_from_config(config)
+            model = DenseUNet3d()
+            phase_a_train_loader = prepare_dataloader(config, train=True, detect_tumors=False)
+            phase_a_val_loader = prepare_dataloader(config, train=False, detect_tumors=False)
+            phase_b_train_loader = prepare_dataloader(config, train=True, detect_tumors=True)
+            phase_b_val_loader = prepare_dataloader(config, train=False, detect_tumors=True)
+
+        from dense_unet_3d.training.cascaded_driver import run_cascaded_training
+
+        result = run_cascaded_training(
+            config,
+            model,
+            device,
+            phase_a_train_loader,
+            val_loader=phase_a_val_loader,
+            phase_b_train_loader=phase_b_train_loader,
+            phase_b_val_loader=phase_b_val_loader,
+            session=session,
+            resume=resume,
+        )
+        reason = result["terminal_reason"]
+        if reason == "completed" and args.final_eval:
+            from dense_unet_3d.evaluation.evaluate import EvaluationInterrupted, evaluate
+
+            runtime = config.get("runtime", {})
+            session.event("training_completed", training_completed=True)
+            evaluation_start = time.monotonic()
+            reason = session.stop_reason() or reason
+            if reason == "completed":
+                best_path = Path(session.run_dir) / "phase_b" / "best.pt"
+                model = _load_model_from_checkpoint(str(best_path), device)
+                try:
+                    metrics = evaluate(
+                        model,
+                        device,
+                        phase_b_val_loader,
+                        wall_seconds=max(
+                            1e-9,
+                            runtime.get("final_eval_wall_seconds", 300)
+                            - (time.monotonic() - evaluation_start),
+                        ),
+                        max_batches=runtime.get("final_eval_max_batches", 100),
+                        stop_requested=session.stop_reason,
+                    )
+                    session.event("final_evaluation", metrics=metrics)
+                    sys.stdout.write(f"Final evaluation: {json.dumps(metrics, sort_keys=True)}\n")
+                except EvaluationInterrupted as exc:
+                    reason = session.stop_reason() or "budget exhausted"
+                    session.event(
+                        "final_evaluation_stopped", training_completed=True, error=str(exc)
+                    )
+        session.finish(reason)
+        sys.stdout.write(
+            "Training complete.\n" if reason == "completed" else f"Training {reason}.\n"
+        )
+        for phase in ("phase_a", "phase_b"):
+            metadata = result.get(phase)
+            if metadata:
+                sys.stdout.write(f"  {phase} best epoch: {metadata['best_epoch']}\n")
+
+
+def _cmd_status(args: argparse.Namespace) -> None:
+    from dense_unet_3d.training.runtime import read_status
+
+    started = time.monotonic()
+    while True:
+        sys.stdout.write(json.dumps(read_status(args.run_dir), sort_keys=True, default=str) + "\n")
+        sys.stdout.flush()
+        remaining = args.max_seconds - (time.monotonic() - started)
+        if not args.watch or remaining <= 0:
+            return
+        time.sleep(min(args.interval, remaining))
+
+
+def _cmd_stop(args: argparse.Namespace) -> None:
+    from dense_unet_3d.training.runtime import request_stop
+
+    request_stop(args.run_dir)
+    sys.stdout.write("Stop requested; wait for terminal reason and ownership release.\n")
 
 
 def _cmd_preflight(args: argparse.Namespace) -> None:
@@ -213,7 +367,8 @@ def _cmd_preflight(args: argparse.Namespace) -> None:
 def _cmd_eval(args: argparse.Namespace) -> None:
     """``dense-unet-3d eval --config <path> --checkpoint <path> [--dry-run]``."""
     config = _load_config(args.config)
-    device = _device_from_config(config)
+    started = time.monotonic()
+    device = torch.device("cpu") if args.dry_run else _device_from_config(config)
 
     model = _load_model_from_checkpoint(args.checkpoint, device)
 
@@ -226,7 +381,12 @@ def _cmd_eval(args: argparse.Namespace) -> None:
 
     from dense_unet_3d.evaluation.evaluate import evaluate
 
-    metrics = evaluate(model, device, val_loader)
+    remaining = args.wall_seconds - (time.monotonic() - started)
+    if remaining <= 0:
+        raise RuntimeError("Evaluation budget exhausted during setup")
+    metrics = evaluate(
+        model, device, val_loader, wall_seconds=remaining, max_batches=args.max_batches
+    )
     sys.stdout.write("Dice metrics:\n")
     for key, value in metrics.items():
         sys.stdout.write(f"  {key}: {value:.4f}\n")
@@ -317,7 +477,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="dense-unet-3d",
         description=(
             "3D-DenseUNet-569 — reduced-depth 3-D medical image segmentation. "
-            "Use a subcommand: train, preflight, eval, or predict."
+            "Use train, resume, status, stop, preflight, eval, or predict."
         ),
     )
     parser.add_argument(
@@ -329,21 +489,55 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
     subparsers.required = True
 
-    # -- train ----------------------------------------------------------------
-    train_parser = subparsers.add_parser(
-        "train",
-        help="Run cascaded 2-phase training.",
-        description=(
-            "Run the cascaded 2-phase training (Phase A + Phase B) on the "
-            "configuration supplied via --config."
-        ),
+    for command in ("train", "resume"):
+        training_parser = subparsers.add_parser(
+            command,
+            help="Start training."
+            if command == "train"
+            else "Resume an exact recovery checkpoint.",
+        )
+        training_parser.add_argument("--config", required=True, metavar="PATH")
+        training_parser.add_argument(
+            "--dry-run", action="store_true", help="Synthetic CPU-only run."
+        )
+        training_parser.add_argument(
+            "--wall-seconds",
+            type=_positive_seconds,
+            default=None,
+            help="Invocation wall allocation, including setup.",
+        )
+        training_parser.add_argument(
+            "--budget-seconds",
+            type=_positive_seconds,
+            default=None,
+            help="Persistent allocation; resume cannot reset it.",
+        )
+        training_parser.add_argument(
+            "--recover",
+            action="store_true",
+            help="Recover verified stale ownership after crash/reboot.",
+        )
+        training_parser.add_argument(
+            "--max-retries",
+            type=int,
+            default=None,
+            help="Persistent failed/unknown attempt recovery allowance.",
+        )
+        training_parser.add_argument(
+            "--final-eval",
+            action="store_true",
+            help="Bounded Phase B best evaluation after completion.",
+        )
+
+    status_parser = subparsers.add_parser(
+        "status", help="Print durable progress/ownership as JSON."
     )
-    train_parser.add_argument(
-        "--config",
-        required=True,
-        metavar="PATH",
-        help="Path to YAML config file (no hardcoded cwd dependence).",
-    )
+    status_parser.add_argument("--run-dir", required=True)
+    status_parser.add_argument("--watch", action="store_true")
+    status_parser.add_argument("--interval", type=_positive_seconds, default=10.0)
+    status_parser.add_argument("--max-seconds", type=_positive_seconds, default=3600.0)
+    stop_parser = subparsers.add_parser("stop", help="Request safe stop from verified local owner.")
+    stop_parser.add_argument("--run-dir", required=True)
 
     # -- preflight ------------------------------------------------------------
     preflight_parser = subparsers.add_parser(
@@ -360,16 +554,6 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Also decode CT and mask voxels; require finite CTs and labels in {0, 1, 2}.",
     )
-    train_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=False,
-        help=(
-            "Use synthetic data for a fast CPU dry-run (no real NIfTI files needed). "
-            "Useful for CI and integration tests."
-        ),
-    )
-
     # -- eval -----------------------------------------------------------------
     eval_parser = subparsers.add_parser(
         "eval",
@@ -396,6 +580,19 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Use synthetic validation data (no real NIfTI files needed).",
+    )
+
+    eval_parser.add_argument(
+        "--wall-seconds",
+        type=_positive_seconds,
+        default=300.0,
+        help="Wall budget including setup (default 300 seconds).",
+    )
+    eval_parser.add_argument(
+        "--max-batches",
+        type=_positive_int,
+        default=100,
+        help="Refuse incomplete evaluation beyond this batch bound.",
     )
 
     # -- predict --------------------------------------------------------------
@@ -445,8 +642,12 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    if args.command == "train":
+    if args.command in {"train", "resume"}:
         _cmd_train(args)
+    elif args.command == "status":
+        _cmd_status(args)
+    elif args.command == "stop":
+        _cmd_stop(args)
     elif args.command == "preflight":
         _cmd_preflight(args)
     elif args.command == "eval":

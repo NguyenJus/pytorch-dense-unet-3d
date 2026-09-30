@@ -16,6 +16,7 @@ Bug fixes (§4):
 from __future__ import annotations
 
 import os
+import warnings
 from typing import Any
 
 import torch
@@ -133,6 +134,12 @@ def train(
         Per-epoch average train loss (length == ``config["training"]["epochs"]``).
         Each entry is 0.0 for an empty loader (documented; NaN-safe).
     """
+    warnings.warn(
+        "The single-phase train() API is unmanaged and non-resumable; use "
+        "run_cascaded_training for ownership, recovery and budgets.",
+        UserWarning,
+        stacklevel=2,
+    )
     run_name: str = config["pathing"]["run_name"]
     model_save_dir: str = config["pathing"]["model_save_dir"]
     ckpt_dir = os.path.join(model_save_dir, run_name)
@@ -173,7 +180,13 @@ def train(
             # Reuse the criterion built once before the loop (no per-batch rebuild).
             loss = criterion(logits, segmentation)
 
+            if not torch.isfinite(loss):
+                raise FloatingPointError("Nonfinite training loss")
             loss.backward()
+            if any(
+                p.grad is not None and not torch.isfinite(p.grad).all() for p in model.parameters()
+            ):
+                raise FloatingPointError("Nonfinite training gradients")
             optimizer.step()
 
             running_loss += loss.item()
@@ -212,6 +225,8 @@ def train(
                 "loss": epoch_loss,
                 "losses": losses,
             }
-            torch.save(ckpt, os.path.join(ckpt_dir, f"epoch{epoch}.pt"))
+            from dense_unet_3d.training.runtime import atomic_checkpoint
+
+            atomic_checkpoint(os.path.join(ckpt_dir, f"epoch{epoch}.pt"), ckpt)
 
     return losses

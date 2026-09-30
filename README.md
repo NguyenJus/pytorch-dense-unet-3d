@@ -40,17 +40,34 @@ Copy the supplied configuration before editing dataset and output paths:
 cp dense_unet_3d/config.yaml config.yaml
 ```
 
-All subcommands take `--config <path/to/config.yaml>`.
+Training, evaluation and inference take `--config <path/to/config.yaml>`;
+`status` and `stop` take `--run-dir <model_save_dir>/<run_name>`.
 
 ### Train
 
 ```bash
-dense-unet-3d train --config config.yaml
+dense-unet-3d train --config config.yaml --wall-seconds 28800 --budget-seconds 216000
 ```
 
 Runs the cascaded 2-phase training schedule (Phase A: 100 epochs × 10 steps;
 Phase B: reload best checkpoint, 1000 epochs × 10 steps).
-Checkpoints are written to the path specified in `config.yaml`.
+The CLI prints the schedule and budget before allocating training resources.
+Every completed epoch writes an atomic recovery checkpoint independently of best
+validation improvement. SIGINT/SIGTERM request checkpoint-and-stop at an epoch
+boundary; the full remaining epoch/validation/I/O may exceed the wall allocation.
+Cumulative wall time is persisted across explicit resumes.
+
+```bash
+dense-unet-3d status --run-dir models/example_run --watch --max-seconds 3600
+dense-unet-3d stop --run-dir models/example_run
+dense-unet-3d resume --config config.yaml --wall-seconds 28800
+```
+
+No automatic restart is installed. Legacy checkpoints without continuation state
+cannot exactly resume. Launch, recovery after host reboot, runtime accounting,
+validation cadence, ownership and bounded evaluation are documented in
+[training operations](docs/training-operations.md). CPU `--dry-run` never selects
+CUDA; a real GPU run requires separate authorization.
 
 ### Preflight
 
@@ -70,7 +87,10 @@ dense-unet-3d eval --config config.yaml --checkpoint <path/to/best.pt>
 ```
 
 Evaluates on the configured validation directories and prints liver and tumor
-Dice scores (per-case and global).
+Dice scores (per-case and global). Default bounds are 300 seconds including setup
+and 100 batches; override with `--wall-seconds` and `--max-batches`. Incomplete
+evaluation withholds metrics. Optional `train/resume --final-eval` also respects
+the remaining persistent training budget.
 
 ### Predict
 
