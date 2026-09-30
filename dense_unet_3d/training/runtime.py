@@ -8,6 +8,7 @@ refuses recovery. Locks require a local filesystem with working flock/fsync.
 from __future__ import annotations
 
 import copy
+import ctypes
 import fcntl
 import hashlib
 import json
@@ -132,16 +133,56 @@ def read_status(run_dir: str | Path) -> dict[str, Any]:
     return state
 
 
+def _libc_pidfd_call(name: str, argtypes: list[Any], *args: Any) -> int:
+    """Use libc's ABI when this Python build omits Linux pidfd bindings."""
+    try:
+        function = getattr(ctypes.CDLL(None, use_errno=True), name)
+    except (AttributeError, OSError) as exc:
+        raise RuntimeError(
+            f"Safe stop unavailable: neither Python nor libc exposes {name}; "
+            "PID-based signaling is not a safe fallback"
+        ) from exc
+    function.argtypes = argtypes
+    function.restype = ctypes.c_int
+    result = int(function(*args))
+    if result == -1:
+        error = ctypes.get_errno()
+        raise OSError(error, f"{name}: {os.strerror(error)}")
+    return result
+
+
+def _pidfd_open(pid: int) -> int:
+    native = getattr(os, "pidfd_open", None)
+    if native is not None:
+        return int(native(pid, 0))
+    return _libc_pidfd_call("pidfd_open", [ctypes.c_int, ctypes.c_uint], pid, 0)
+
+
+def _pidfd_send_signal(fd: int, sig: int) -> None:
+    native = getattr(signal, "pidfd_send_signal", None)
+    if native is not None:
+        native(fd, sig, None, 0)
+        return
+    _libc_pidfd_call(
+        "pidfd_send_signal",
+        [ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint],
+        fd,
+        sig,
+        None,
+        0,
+    )
+
+
 def request_stop(run_dir: str | Path) -> None:
     state = read_status(run_dir)
     if state["ownership"] != "live":
         raise RuntimeError("Refusing signal: run has no verified live owner")
     # pidfd prevents PID reuse between identity verification and signaling.
-    fd = os.pidfd_open(state["owner"]["pid"])
+    fd = _pidfd_open(state["owner"]["pid"])
     try:
         if _process_identity(state["owner"]["pid"]) != state["owner"]:
             raise RuntimeError("Owner changed before stop request")
-        signal.pidfd_send_signal(fd, signal.SIGTERM)
+        _pidfd_send_signal(fd, signal.SIGTERM)
     finally:
         os.close(fd)
 
