@@ -150,6 +150,8 @@ The standard mypy invocation targeting Python 3.11 is blocked by Python 3.13
 NumPy stubs using newer syntax in the installed environment. Mypy explicitly
 targeting that installed Python 3.13 environment passes across all 29 source
 files. The existing Python 3.11 virtual environment lacks project dependencies;
-no claim of a successful Python 3.11 type check is made. Integration logs and
+no local Python 3.11 type-check pass is claimed. After publication in PR 15,
+the clean GitHub Actions Python 3.11 quality-gates job passed, including mypy.
+Integration logs and
 durable diagnostic evidence are in the separate audit artifact directory cited
 above.
