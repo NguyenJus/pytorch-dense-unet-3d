@@ -28,9 +28,9 @@ from dense_unet_3d.dataset.slabs import NativeSlabDataset
 from dense_unet_3d.model.config import build_model, model_metadata
 from dense_unet_3d.training import cascaded_driver as driver
 from dense_unet_3d.training.cascaded_driver import run_cascaded_training
-from dense_unet_3d.training.experiment import configure_execution, validate_experiment
+from dense_unet_3d.training.experiment import configure_execution
 from dense_unet_3d.training.loss import get_criterion
-from dense_unet_3d.training.runtime import RunSession, atomic_checkpoint, atomic_json
+from dense_unet_3d.training.runtime import RunSession, atomic_json
 from dense_unet_3d.training.train import get_optimizer, get_scheduler, unpack_training_batch
 
 
@@ -253,140 +253,6 @@ def compare_numerically(left, right, exact=False):
     return result
 
 
-def write_markdown(report_path, receipt):
-    budget = receipt.get("budget", {})
-    max_updates = budget.get("max_updates", "unknown")
-    max_seconds = budget.get("max_gpu_wall_seconds", "unknown")
-    model = receipt.get("model", {})
-    parameters = model.get("parameters", "unknown")
-    model_name = model.get("model_config", {}).get("name", "unknown model")
-    gpu = receipt.get("gpu_info", "unknown GPU").splitlines()[0]
-    resolved = receipt.get("resolved_config", {})
-    dims = resolved.get("dataset", {}).get("resize_dims", {})
-    shape = tuple(dims.get(k, "?") for k in ("D", "H", "W"))
-    optimizer_name = resolved.get("training", {}).get("optimizer", "unknown optimizer")
-    criterion_name = resolved.get("training", {}).get("criterion", "unknown loss")
-    lines = [
-        "# Bounded GPU diagnostics",
-        "",
-        f"**{receipt['status']}**. {receipt['updates']}/{max_updates} updates; "
-        f"{receipt.get('gpu_wall_seconds', 0):.3f}/{max_seconds} seconds cumulative GPU allocation.",
-        "",
-        f"{model_name} ({parameters} parameters), {gpu}, "
-        "FP32, TF32 disabled, cuDNN deterministic=True and benchmark=False; "
-        f"global strict determinism={receipt['execution']['deterministic']}. "
-        "This is diagnostic evidence, not exact paper reconstruction.",
-        "",
-    ]
-    if receipt.get("profile"):
-        lines += [
-            f"Warm full-shape batch `(1,1,{shape[0]},{shape[1]},{shape[2]})`:",
-            "",
-            "| Stage | Seconds | Peak allocated GiB | Peak reserved GiB | Device used GiB |",
-            "| --- | ---: | ---: | ---: | ---: |",
-        ]
-        for name, stage in receipt["profile"][-1]["stages"].items():
-            lines.append(
-                f"| {name} | {stage['seconds']:.3f} | "
-                f"{stage['peak_allocated_bytes'] / 2**30:.3f} | "
-                f"{stage['peak_reserved_bytes'] / 2**30:.3f} | "
-                f"{stage['device_used_bytes'] / 2**30:.3f} |"
-            )
-        lines += [
-            "",
-            "Device usage is sampled after each stage; allocator peaks are measured within each stage.",
-            "",
-        ]
-    for index, attempt in enumerate(receipt.get("previous_attempts", []), 1):
-        lines.append(f"- Preserved attempt {index}: {attempt['error'].split(', but')[0]}")
-    lines.append("")
-    resume = receipt.get("resume", {})
-    if resume:
-        lines += [
-            f"Managed phase-boundary stop/resume: **{'pass' if resume['passed'] else 'fail'}**. "
-            "Floating outputs/losses/all gradients/model/BN/optimizer/history use predeclared "
-            "`atol=1e-6, rtol=1e-4`; RNG, scheduler and integer counters require exact equality. "
-            "Four uninterrupted updates were compared with two updates, a committed phase-B "
-            "boundary stop, then two resumed updates. No validation data or metrics were used for parity.",
-            "",
-        ]
-    overfit = receipt.get("overfit", {})
-    if overfit.get("after"):
-        before, after = overfit["before"], overfit["after"]
-        steps = overfit["steps"]
-        selected = receipt.get("selected_samples", [])
-        selected_text = "; ".join(
-            f"case `{sample['case_id']}`, depth {sample['native_depth_bounds']}, "
-            f"{sample['class_voxel_counts'][2]} tumor voxels "
-            f"({100 * sample['tumor_fraction']:.3f}% of {sample['valid_voxels']} valid voxels)"
-            for sample in selected
-        )
-        lines += [
-            "Tumor-positive overfit: **"
-            f"{'pass' if overfit['passed'] else 'evaluation readiness inconclusive; acceptance criterion unmet'}**, "
-            f"{len(steps)} updates, fixed {optimizer_name}/{criterion_name} recipe. "
-            f"Selected train slabs: {selected_text or 'none'}. "
-            f"Eval loss {before['mean_loss']:.6f} → {after['mean_loss']:.6f}; "
-            f"mean tumor Dice {before['mean_tumor_dice']:.6f} → {after['mean_tumor_dice']:.6f}. "
-            f"Final class2 prediction counts were {[s['predicted_class_counts'][2] for s in after['samples']]}, "
-            f"with tumor-overlap counts {[s['tumor_overlap_voxels'] for s in after['samples']]}. "
-            "The predeclared gate requires overlap on both and at least 0.10 absolute Dice gain.",
-            "",
-        ]
-        if steps:
-            first = steps[: min(2, len(steps))]
-            last = steps[-min(2, len(steps)) :]
-            train_first = sum(s["tumor_dice"] for s in first) / len(first)
-            train_last = sum(s["tumor_dice"] for s in last) / len(last)
-            bn_layers = receipt.get("profile", [{}])[-1].get("bn_layers", "unknown")
-            lines += [
-                f"Train-forward mean Dice over the first/last {len(first)} steps was "
-                f"{train_first:.6f} → {train_last:.6f}. These predictions show training fit but "
-                "do not clear the eval gate. The cause of the train/eval discrepancy remains "
-                "unresolved; BN statistics are a candidate to investigate, not an established diagnosis.",
-                "",
-                f"All {overfit.get('norm_parameter_count', parameters)} parameter elements were "
-                f"included in gradient/update norms: gradient L2 "
-                f"[{min(s['gradient_l2'] for s in steps):.6f}, "
-                f"{max(s['gradient_l2'] for s in steps):.6f}], actual update L2 "
-                f"[{min(s['actual_update_l2'] for s in steps):.6f}, "
-                f"{max(s['actual_update_l2'] for s in steps):.6f}]. All parameters/gradients/updates "
-                f"remained finite. All {bn_layers} BN counters advanced once per training step, and "
-                "evaluation preserved every BN buffer.",
-                "",
-            ]
-        else:
-            lines += ["No overfit update fit within the remaining allocation.", ""]
-    if receipt.get("validation_eval"):
-        validation = receipt.get("validation_sample", {})
-        lines += [
-            "Held-out validation eval smoke used one target-independent first slab of case "
-            f"`{validation.get('case_id', 'unknown')}`; "
-            "logits/loss were finite and BN buffers preserved. This single slab is not a "
-            "tumor-learning check or full-case validation result.",
-            "",
-        ]
-    if receipt.get("final_weights_checkpoint", {}).get("saved") is False:
-        lines += [
-            "Limitation: final overfit weights were not persisted by the exercised runner. "
-            "A comparison of batch-stat and running-stat forwards on identical final weights "
-            "was not executed, so BN causality remains untested. No updates were repeated. "
-            "The runner now saves final weights for a future authorized allocation.",
-            "",
-        ]
-    lines += [
-        f"Long-run gate: **{receipt.get('long_run_gate', 'blocked; checks incomplete')}**. "
-        "The independent R2/full-case/research gates remain open.",
-        "",
-        "The adjacent JSON contains full counts, all update norms, cold/warm memory/runtime, "
-        "source/config/split/script hashes and numerical replay deviations. Archive the exact "
-        "exercised scripts/config separately before publication. Raw cached slabs, complete "
-        "per-step outputs/gradients, recovery checkpoints and failed-attempt reports/logs remain "
-        "local-only under the selected artifacts directory unless explicitly archived.",
-    ]
-    report_path.with_suffix(".md").write_text("\n".join(lines) + "\n")
-
-
 def parity(config, batches, raw, remaining, receipt):
     cfg = copy.deepcopy(config)
     cfg["training"].update(
@@ -542,9 +408,6 @@ def main():
     parser.add_argument("--overfit-after-replay-failure", action="store_true")
     args = parser.parse_args()
     raw, report_path = Path(args.artifacts), Path(args.report)
-    config = yaml.safe_load(Path(args.config).read_text())
-    validate_experiment(config)
-    configure_execution(config)
     raw.mkdir(parents=True, exist_ok=True)
     previous = None
     if report_path.exists() or (raw / "allocation.json").exists():
@@ -576,6 +439,8 @@ def main():
         (raw / f"failed-attempt-{attempt}.md").write_text(
             report_path.with_suffix(".md").read_text()
         )
+    config = yaml.safe_load(Path(args.config).read_text())
+    configure_execution(config)
     receipt = {
         "claim": "bounded diagnostic reconstruction candidate; not exact paper reconstruction",
         "status": "preparing",
@@ -769,24 +634,6 @@ def main():
                 receipt["overfit"]["latest_eval"] = evaluate(model, batches, criterion)
                 save()
         receipt["overfit"]["after"] = evaluate(model, batches, criterion)
-        checkpoint_path = raw / "final-overfit.pt"
-        atomic_checkpoint(
-            checkpoint_path,
-            {
-                **model_metadata(model),
-                "model_state_dict": {k: v.detach().cpu() for k, v in model.state_dict().items()},
-                "config": config,
-                "overfit_updates": len(receipt["overfit"]["steps"]),
-                "source_sha256": receipt["source_sha256"],
-                "script_sha256": receipt["script_sha256"],
-                "selected_samples": receipt["selected_samples"],
-            },
-        )
-        receipt["final_weights_checkpoint"] = {
-            "saved": True,
-            "path": str(checkpoint_path),
-            "sha256": sha(checkpoint_path),
-        }
         receipt["overfit"]["memory"] = memory()
         initial = receipt["overfit"]["before"]["mean_tumor_dice"]
         final = receipt["overfit"]["after"]["mean_tumor_dice"]
@@ -830,7 +677,17 @@ def main():
         raise
     finally:
         save()
-        write_markdown(report_path, receipt)
+        report_path.with_suffix(".md").write_text(
+            "# Bounded GPU diagnostics\n\n"
+            f"Status: **{receipt['status']}**. Updates: {receipt['updates']}/90. "
+            f"GPU wall allocation: {receipt.get('gpu_wall_seconds', 0):.2f}/900 seconds.\n\n"
+            "Final figure-skip candidate, FP32, TF32 disabled, cuDNN deterministic algorithms "
+            f"selected, global strict determinism={receipt['execution']['deterministic']}; "
+            "this evidence does not establish exact paper reconstruction. "
+            "See the adjacent JSON for source/config hashes, sample provenance, stage memory/runtime, "
+            "complete norms, BN checks, and managed resume state comparisons.\n\n"
+            f"Long-run gate: {receipt.get('long_run_gate', 'blocked; diagnostic checks incomplete')}.\n"
+        )
 
 
 if __name__ == "__main__":

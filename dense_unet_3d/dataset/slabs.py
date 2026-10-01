@@ -29,16 +29,32 @@ def slab_starts(depth: int, window: int = 12) -> list[int]:
 
 def spatial_config(config: dict) -> dict[str, Any]:
     dims = config.get("resize_dims", {"D": 12, "H": 224, "W": 224})
-    window, height, width = (int(dims[k]) for k in ("D", "H", "W"))
+    if not isinstance(dims, dict) or any(type(dims.get(k)) is not int for k in ("D", "H", "W")):
+        raise ValueError("native_slabs resize dimensions must be integers")
+    window, height, width = (dims[k] for k in ("D", "H", "W"))
     if window < 1 or height < 1 or width < 1:
         raise ValueError("slab model dimensions must be positive")
-    if config.get("random_hflip", False) or config.get("scale_img", False):
+    if config.get("resize_img", True) is not True:
+        raise ValueError("native_slabs full_fov_resize requires resize_img=true")
+    random_hflip = config.get("random_hflip", False)
+    scale_img = config.get("scale_img", False)
+    if type(random_hflip) is not bool or type(scale_img) is not bool:
+        raise ValueError("native_slabs augmentation flags must be booleans")
+    if random_hflip or scale_img:
         raise ValueError(
             "native_slabs augmentation is unresolved; explicitly disable random_hflip and scale_img"
         )
     if config.get("inplane_representation", "full_fov_resize") != "full_fov_resize":
         raise ValueError("only the gated full_fov_resize candidate is implemented")
+    clamp_hu = config.get("clamp_hu", True)
+    if type(clamp_hu) is not bool:
+        raise ValueError("native_slabs clamp_hu must be a boolean")
     hu = config.get("clamp_hu_range", {"min": -200, "max": 250})
+    if not isinstance(hu, dict) or any(
+        isinstance(hu.get(k), bool) or not isinstance(hu.get(k), (int, float))
+        for k in ("min", "max")
+    ):
+        raise ValueError("HU clipping bounds must be finite numbers")
     low, high = float(hu["min"]), float(hu["max"])
     if not math.isfinite(low) or not math.isfinite(high) or low >= high:
         raise ValueError("HU clipping bounds must be finite and increasing")
@@ -46,7 +62,7 @@ def spatial_config(config: dict) -> dict[str, Any]:
         "window": window,
         "height": height,
         "width": width,
-        "clamp_hu": bool(config.get("clamp_hu", True)),
+        "clamp_hu": clamp_hu,
         "hu_low": low,
         "hu_high": high,
         "representation": "full_fov_resize",

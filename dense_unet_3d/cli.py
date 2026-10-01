@@ -27,6 +27,7 @@ import math
 import os
 import sys
 import time
+import warnings
 from collections.abc import Sized
 from pathlib import Path
 from typing import Any, cast
@@ -107,6 +108,8 @@ def _load_model_from_checkpoint(
     checkpoint_path: str,
     device: torch.device,
     config: dict[str, Any] | None = None,
+    *,
+    allow_legacy_preprocessing: bool = False,
 ) -> nn.Module:
     """Load the full model from a checkpoint.
 
@@ -115,7 +118,7 @@ def _load_model_from_checkpoint(
     fallback is transparent to callers.
     """
     ckpt: dict[str, Any] = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    from dense_unet_3d.training.experiment import configure_execution
+    from dense_unet_3d.training.experiment import configure_execution, preprocessing_identity
 
     if (
         config is not None
@@ -126,17 +129,40 @@ def _load_model_from_checkpoint(
             raise ValueError("Checkpoint execution configuration mismatch")
     configure_execution({"execution": ckpt.get("execution", (config or {}).get("execution"))})
     state = ckpt["model_state_dict"]
-    if config is not None and ckpt.get("dataset_config") is not None:
-        for key, default in (
-            ("sampling", "whole_volume"),
-            ("resize_dims", {"D": 12, "H": 224, "W": 224}),
-            ("clamp_hu", True),
-            ("clamp_hu_range", {"min": -200, "max": 250}),
-        ):
-            if ckpt["dataset_config"].get(key, default) != config.get("dataset", {}).get(
-                key, default
+
+    def validate_preprocessing() -> None:
+        if config is None:
+            return
+        expected_identity = preprocessing_identity(config)
+        actual_identity = ckpt.get("preprocessing_identity")
+        checkpoint_dataset = ckpt.get("dataset_config")
+        if actual_identity is not None and not isinstance(checkpoint_dataset, dict):
+            raise ValueError("Checkpoint has incomplete preprocessing metadata")
+        if isinstance(checkpoint_dataset, dict):
+            configured_dataset = config.get("dataset", {})
+            for key, default in (
+                ("sampling", "whole_volume"),
+                ("resize_img", True),
+                ("resize_dims", {"D": 12, "H": 224, "W": 224}),
+                ("clamp_hu", True),
+                ("clamp_hu_range", {"min": -200, "max": 250}),
             ):
-                raise ValueError(f"Checkpoint preprocessing mismatch: {key}")
+                if checkpoint_dataset.get(key, default) != configured_dataset.get(key, default):
+                    raise ValueError(f"Checkpoint preprocessing mismatch: {key}")
+        if actual_identity is None:
+            if not allow_legacy_preprocessing:
+                raise ValueError(
+                    "Checkpoint lacks preprocessing identity; pass "
+                    "--allow-legacy-preprocessing only after verifying its historical pipeline"
+                )
+            warnings.warn(
+                "LEGACY PREPROCESSING OVERRIDE: checkpoint sampling semantics are unknown; "
+                "evaluation or prediction may not be comparable to the training pipeline.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        elif actual_identity != expected_identity:
+            raise ValueError("Checkpoint preprocessing implementation mismatch")
 
     # Legitimate test-stub checkpoint: detect by its exact state_dict keys.
     if not {"model_config", "model_fingerprint"}.intersection(ckpt) and set(state.keys()) == {
@@ -147,6 +173,7 @@ def _load_model_from_checkpoint(
             raise ValueError(
                 "Synthetic stub checkpoint cannot satisfy an explicit model configuration"
             )
+        validate_preprocessing()
         conv = nn.Conv3d(1, 3, kernel_size=1)
         conv.load_state_dict({"weight": state["conv.weight"], "bias": state["conv.bias"]})
         stub: nn.Module = _TinyStub(conv)
@@ -176,6 +203,7 @@ def _load_model_from_checkpoint(
                 raise ValueError(
                     "Metadata-free checkpoint supports only the historical reduced graph"
                 )
+    validate_preprocessing()
     model: nn.Module = build_model(model_config)
     try:
         model.load_state_dict(state)
@@ -434,7 +462,12 @@ def _cmd_eval(args: argparse.Namespace) -> None:
     started = time.monotonic()
     device = torch.device("cpu") if args.dry_run else _device_from_config(config)
 
-    model = _load_model_from_checkpoint(args.checkpoint, device, None if args.dry_run else config)
+    model = _load_model_from_checkpoint(
+        args.checkpoint,
+        device,
+        None if args.dry_run else config,
+        allow_legacy_preprocessing=args.allow_legacy_preprocessing,
+    )
 
     if args.dry_run:
         val_loader = _make_dry_run_loader()
@@ -466,7 +499,12 @@ def _cmd_predict(args: argparse.Namespace) -> None:
     config = _load_config(args.config)
     device = _device_from_config(config)
 
-    model = _load_model_from_checkpoint(args.checkpoint, device, config)
+    model = _load_model_from_checkpoint(
+        args.checkpoint,
+        device,
+        config,
+        allow_legacy_preprocessing=args.allow_legacy_preprocessing,
+    )
 
     # Load the input NIfTI volume.
     input_img: nib.nifti1.Nifti1Image = nib.load(args.input)  # type: ignore[assignment]
@@ -475,7 +513,10 @@ def _cmd_predict(args: argparse.Namespace) -> None:
     affine = input_img.affine
     pred_hwd: np.ndarray[Any, Any]
 
-    if config.get("dataset", {}).get("sampling") == "native_slabs":
+    from dense_unet_3d.dataset.prepare_dataset import sampling_mode
+
+    mode = sampling_mode(config)
+    if mode == "native_slabs":
         from dense_unet_3d.evaluation.predict import predict_volume
 
         pred_hwd = predict_volume(model, device, input_img, config["dataset"])
@@ -651,6 +692,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Use synthetic validation data (no real NIfTI files needed).",
     )
+    eval_parser.add_argument(
+        "--allow-legacy-preprocessing",
+        action="store_true",
+        help="Allow a checkpoint without preprocessing identity and emit a prominent warning.",
+    )
 
     eval_parser.add_argument(
         "--wall-seconds",
@@ -686,6 +732,11 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="PATH",
         help="Path to .pt checkpoint file.",
+    )
+    predict_parser.add_argument(
+        "--allow-legacy-preprocessing",
+        action="store_true",
+        help="Allow a checkpoint without preprocessing identity and emit a prominent warning.",
     )
     predict_parser.add_argument(
         "--input",

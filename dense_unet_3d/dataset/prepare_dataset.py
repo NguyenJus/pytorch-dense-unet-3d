@@ -13,6 +13,21 @@ from dense_unet_3d.dataset.transforms.ReshapeTensor import ReshapeTensor
 from dense_unet_3d.dataset.transforms.Resize import Resize
 from dense_unet_3d.dataset.transforms.ScaleAndPadOrCrop import ScaleAndPadOrCrop
 
+SUPPORTED_SAMPLING = {"whole_volume", "native_slabs"}
+
+
+def sampling_mode(config: dict) -> str:
+    """Return the canonical sampling mode and reject unknown configuration values."""
+    dataset = config.get("dataset", {})
+    if not isinstance(dataset, dict):
+        raise ValueError("dataset must be a mapping")
+    mode = dataset.get("sampling", "whole_volume")
+    if not isinstance(mode, str) or mode not in SUPPORTED_SAMPLING:
+        raise ValueError(
+            f"unknown dataset.sampling {mode!r}; expected one of {sorted(SUPPORTED_SAMPLING)}"
+        )
+    return mode
+
 
 def _validate_split_manifest(config: dict, split: str, pairs: list[tuple[str, str]]) -> None:
     path = config.get("experiment", {}).get("split_manifest")
@@ -99,6 +114,7 @@ def preflight_config(config: dict, *, full_decode: bool = False) -> dict[str, in
     or CUDA are created.  ``full_decode`` adds segmentation-label validation;
     header-only checks are useful for a fast standalone audit.
     """
+    sampling_mode(config)
     pathing = config["pathing"]
     train_dirs = pathing.get("train_img_dirs")
     test_dirs = pathing.get("test_img_dirs")
@@ -197,13 +213,12 @@ def prepare_dataset(
                     "train_img_dirs and test_img_dirs overlap; validation data would leak into training"
                 )
 
-    if config["dataset"].get("sampling", "legacy_volume_resize") == "native_slabs":
+    mode = sampling_mode(config)
+    if mode == "native_slabs":
         _validate_split_manifest(
             config, "train" if train else "validation", discover_pairs(img_dirs)
         )
         return NativeSlabDataset(img_dirs, config["dataset"], detect_tumors=detect_tumors)
-    if config["dataset"].get("sampling", "legacy_volume_resize") != "legacy_volume_resize":
-        raise ValueError("unknown dataset.sampling")
 
     transform = compose_transforms(config, train=train)
     all_transforms = transform["all_transforms"]

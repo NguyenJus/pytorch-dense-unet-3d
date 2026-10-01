@@ -102,9 +102,12 @@ def _write_config(path: str, config: dict[str, Any]) -> None:
 
 def _write_checkpoint(path: str, model: nn.Module) -> None:
     """Save a minimal checkpoint to path."""
+    from dense_unet_3d.training.experiment import experiment_metadata
+
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(
         {
+            **experiment_metadata({}),
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": {},
             "scheduler_state_dict": None,
@@ -158,6 +161,7 @@ class TestHelp:
             f"eval --help exited {result.returncode}\nstderr: {result.stderr}"
         )
         assert "--config" in result.stdout + result.stderr, "--config not in eval --help output"
+        assert "--allow-legacy-preprocessing" in result.stdout + result.stderr
 
     def test_preflight_subcommand_help(self) -> None:
         result = _run_cli("preflight", "--help")
@@ -172,6 +176,7 @@ class TestHelp:
             f"predict --help exited {result.returncode}\nstderr: {result.stderr}"
         )
         assert "--config" in result.stdout + result.stderr, "--config not in predict --help output"
+        assert "--allow-legacy-preprocessing" in result.stdout + result.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +428,30 @@ class TestPredictCommand:
             )
             assert result.returncode != 0, "predict without --input should exit non-zero"
 
+    def test_predict_rejects_unknown_sampling_before_reading_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _tiny_config(tmp)
+            cfg["dataset"] = {"sampling": "legacy_volume_resize"}
+            config_path = os.path.join(tmp, "tiny.yaml")
+            _write_config(config_path, cfg)
+            ckpt_path = os.path.join(tmp, "checkpoint.pt")
+            _write_checkpoint(ckpt_path, _TinyModel())
+
+            result = _run_cli(
+                "predict",
+                "--config",
+                config_path,
+                "--checkpoint",
+                ckpt_path,
+                "--input",
+                os.path.join(tmp, "does-not-exist.nii.gz"),
+                "--output",
+                os.path.join(tmp, "seg.nii.gz"),
+            )
+
+            assert result.returncode != 0
+            assert "unknown dataset.sampling" in result.stderr
+
 
 # ---------------------------------------------------------------------------
 # FIX 1: predict resizes input to the model's fixed (12,224,224) contract and
@@ -648,11 +677,12 @@ def test_predict_uses_configured_intensity_preprocessing(tmp_path, monkeypatch, 
             captured.append(volume.detach().cpu())
             return torch.zeros(1, 3, *volume.shape[2:])
 
-    monkeypatch.setattr(cli, "_load_model_from_checkpoint", lambda *_: CaptureInput())
+    monkeypatch.setattr(cli, "_load_model_from_checkpoint", lambda *_, **__: CaptureInput())
     cli._cmd_predict(
         Namespace(
             config=str(config_path),
             checkpoint="unused.pt",
+            allow_legacy_preprocessing=False,
             input=str(input_path),
             output=str(tmp_path / "nested" / "seg.nii.gz"),
         )
@@ -692,11 +722,12 @@ def test_predict_restores_labels_on_half_pixel_grid(tmp_path, monkeypatch):
             labels = model_labels[:, None, None].expand(12, 3, 4)
             return torch.nn.functional.one_hot(labels, 3).permute(3, 0, 1, 2)[None].float()
 
-    monkeypatch.setattr(cli, "_load_model_from_checkpoint", lambda *_: LandmarkModel())
+    monkeypatch.setattr(cli, "_load_model_from_checkpoint", lambda *_, **__: LandmarkModel())
     cli._cmd_predict(
         Namespace(
             config=str(config_path),
             checkpoint="unused.pt",
+            allow_legacy_preprocessing=False,
             input=str(input_path),
             output=str(output_path),
         )

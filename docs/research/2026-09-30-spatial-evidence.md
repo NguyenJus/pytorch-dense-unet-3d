@@ -230,8 +230,9 @@ returns to that identical native coordinate. It does not imply a trained model
 will predict that voxel or resolve a component cut by a tile boundary.
 
 Checks: executable synthetic audit passed; Ruff and focused mypy with Python
-3.13 passed. Full header receipt is untracked at
-`/tmp/denseunet-reconstruction-research/native-tiling-feasibility.json`.
+3.13 passed. The full header receipt was local-only at
+`/tmp/denseunet-reconstruction-research/native-tiling-feasibility.json` and is
+not available from a clean clone.
 Reproduce with:
 
 ```sh

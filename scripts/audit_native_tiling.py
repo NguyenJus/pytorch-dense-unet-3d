@@ -23,6 +23,18 @@ from dense_unet_3d.dataset.prepare_dataset import _validate_split_manifest
 from dense_unet_3d.dataset.slabs import slab_starts
 
 
+def physical_units(image: SpatialImage) -> tuple[str, float, str]:
+    """Return declared units, millimeters per affine unit, and disposition."""
+    units = cast(nib.Nifti1Header | nib.Nifti2Header, image.header).get_xyzt_units()[0]
+    scale = {"mm": 1.0, "meter": 1000.0, "micron": 0.001, "unknown": 1.0}[units]
+    disposition = (
+        "assumed_mm_from_LiTS_provenance"
+        if units == "unknown"
+        else "header_declared_converted_to_mm"
+    )
+    return units, scale, disposition
+
+
 def tile_bounds(shape_hwd: tuple[int, int, int], model_dhw=(12, 224, 224)):
     """Native bounds (d,h,w), valid extents, stable label-independent order."""
     height, width, depth = shape_hwd
@@ -139,13 +151,18 @@ def main() -> None:
             starts_h = slab_starts(height, model[1])
             starts_w = slab_starts(width, model[2])
             tile_count = len(starts_d) * len(starts_h) * len(starts_w)
-            spacing = np.linalg.norm(image.affine[:3, :3], axis=0)
+            units, mm_per_unit, units_disposition = physical_units(image)
+            spacing = np.linalg.norm(image.affine[:3, :3], axis=0) * mm_per_unit
             cases.append(
                 {
                     "case_id": _case_id(image_path, "volume"),
                     "source_shape_hwd": [height, width, depth],
+                    "source_spatial_units": units,
+                    "physical_units_disposition": units_disposition,
                     "source_spacing_hwd_mm": spacing.tolist(),
-                    "source_voxel_volume_mm3": float(abs(np.linalg.det(image.affine[:3, :3]))),
+                    "source_voxel_volume_mm3": float(
+                        abs(np.linalg.det(image.affine[:3, :3])) * mm_per_unit**3
+                    ),
                     "starts_d": starts_d,
                     "starts_h": starts_h,
                     "starts_w": starts_w,

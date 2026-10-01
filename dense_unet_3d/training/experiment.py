@@ -11,6 +11,19 @@ from typing import Any
 
 import torch
 
+PREPROCESSING_SCHEMA_VERSION = 1
+
+
+def preprocessing_identity(config: dict[str, Any]) -> dict[str, Any]:
+    """Identify preprocessing code semantics that configuration alone cannot express."""
+    from dense_unet_3d.dataset.prepare_dataset import sampling_mode
+
+    return {
+        "schema_version": PREPROCESSING_SCHEMA_VERSION,
+        "sampling": sampling_mode(config),
+        "coordinate_grid": "half_pixel_v1",
+    }
+
 
 def checkpoint_model_metadata(model: torch.nn.Module) -> dict[str, Any]:
     """Owned graphs carry explicit metadata; generic Python API models do not."""
@@ -24,6 +37,9 @@ def checkpoint_model_metadata(model: torch.nn.Module) -> dict[str, Any]:
 
 
 def validate_experiment(config: dict[str, Any]) -> None:
+    # All launch paths share these two canonical data representations. Validate
+    # before preflight so a misspelled mode cannot trigger an expensive scan.
+    preprocessing_identity(config)
     experiment = config.get("experiment")
     if experiment is None:
         return
@@ -114,5 +130,6 @@ def experiment_metadata(config: dict[str, Any]) -> dict[str, Any]:
                 ("optimizer_semantics", "pytorch_gradient_buffer"),
             )
         },
-        "dataset_config": config.get("dataset"),
+        "dataset_config": config.get("dataset", {}),
+        "preprocessing_identity": preprocessing_identity(config),
     }

@@ -7,7 +7,13 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from dense_unet_3d.dataset.slabs import NativeSlabDataset, model_to_source, slab_starts
+from dense_unet_3d.dataset.slabs import (
+    NativeSlabDataset,
+    model_to_source,
+    slab_starts,
+    spatial_config,
+)
+from scripts.audit_native_tiling import physical_units
 from scripts.census_reconstruction import audit_case, nearest_indices, roundtrip_radius
 
 
@@ -136,3 +142,34 @@ def test_census_26_connectivity_and_identity_native_grid(tmp_path):
 def test_unresolved_augmentation_requires_explicit_disable(tmp_path):
     with pytest.raises(ValueError, match="augmentation is unresolved"):
         NativeSlabDataset([str(tmp_path)], {**config(), "random_hflip": True})
+
+
+@pytest.mark.parametrize(
+    ("update", "message"),
+    [
+        ({"resize_dims": {"D": 12.5, "H": 5, "W": 7}}, "dimensions must be integers"),
+        ({"resize_dims": {"D": True, "H": 5, "W": 7}}, "dimensions must be integers"),
+        ({"resize_img": False}, "requires resize_img=true"),
+        ({"random_hflip": "false"}, "augmentation flags must be booleans"),
+        ({"clamp_hu": 1}, "clamp_hu must be a boolean"),
+        ({"clamp_hu_range": {"min": False, "max": 250}}, "finite numbers"),
+    ],
+)
+def test_native_spatial_config_rejects_silent_coercions(update, message):
+    with pytest.raises(ValueError, match=message):
+        spatial_config({**config(), **update})
+
+
+@pytest.mark.parametrize(
+    ("unit", "scale", "disposition"),
+    [
+        ("mm", 1.0, "header_declared_converted_to_mm"),
+        ("meter", 1000.0, "header_declared_converted_to_mm"),
+        ("micron", 0.001, "header_declared_converted_to_mm"),
+        ("unknown", 1.0, "assumed_mm_from_LiTS_provenance"),
+    ],
+)
+def test_native_tile_audit_physical_units(unit, scale, disposition):
+    image = nib.Nifti1Image(np.zeros((1, 1, 1)), np.eye(4))
+    image.header.set_xyzt_units(unit)
+    assert physical_units(image) == (unit, scale, disposition)

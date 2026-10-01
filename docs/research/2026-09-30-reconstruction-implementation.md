@@ -92,8 +92,10 @@ bypasses. A verifier's earlier results from the original checkout were discarded
 they are not evidence for this branch. Final Ruff lint/format and whitespace checks passed; expanded mypy passed
 all 37 package/audit-script files. Final targeted checks additionally passed 11 slab
 tests, 15 reference/config tests and 45 phase/native-recovery tests (overlapping
-checks are not added to the full-suite count). Diagnostic outcomes follow below. Raw correct-checkout checks are in
-`models/reconstruction-20260930/verification/`.
+checks are not added to the full-suite count). Diagnostic outcomes follow below.
+Raw correct-checkout logs remain local-only under
+`models/reconstruction-20260930/verification/`; the reported exit status is not a
+claim that those logs ship in a clean clone.
 
 The repository's default Python3.11 mypy target cannot parse installed
 Python3.13 NumPy stubs; no Python3.11 local type-check pass is claimed. This is
@@ -137,7 +139,10 @@ was unmet; its recorded flag remains false. No BN recalibration, optimizer sweep
 relaxation or alternative weights were used. The final overfit weights were not
 saved before process exit, so a same-final-weight batch-stat/running-stat causal
 comparison is **untested**; the runner now saves that checkpoint for a future
-allocation. The exact exercised script copies remain with the raw evidence.
+allocation. Exact source for both update-bearing attempts and their config is in
+the tracked [artifact archive](artifacts/README.md); the zero-update and
+reporting-only source is retained by hash only, and large raw
+tensors/checkpoints remain local-only.
 This limitation, failed replay, and inconclusive evaluation readiness are tracked in [#19](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/19).
 
 Readiness remains blocked by [#16](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/16),

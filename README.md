@@ -2,16 +2,16 @@
 
 ### 5 years later, reimplemented and fixed. A checkpoint and improvements will come as I find the time.
 
-A reduced-depth PyTorch reconstruction of **3D-DenseUNet-569** from
+A PyTorch investigation of **3D-DenseUNet-569** from
 [Alalwan et al., *Alexandria Engineering Journal* 60 (2021) 1231–1239][paper],
-with architectural gap-fills from [Li et al., H-DenseUNet, arXiv:1709.07330][hdense].
+preserving the historical reduced-depth implementation and an explicit diagnostic
+full-depth reconstruction. Architectural gap-fills draw from
+[Li et al., H-DenseUNet, arXiv:1709.07330][hdense].
 
 The model segments **livers (class 1) and liver lesions (class 2)** in 3D CT
 volumes from the [LiTS-2017 dataset][lits].
-It uses real dense connectivity, 3D depthwise-separable convolutions (growth
-rate 32, bottleneck 128), and a 5-level U-Net decoder.
-See [Architecture fidelity](#architecture-fidelity) for why the shipped block
-counts differ from the paper's figure.
+The two model identities differ in depth, bottlenecks and decoder operations;
+see [Architecture fidelity](#architecture-fidelity) for their exact contracts.
 
 [paper]: https://www.sciencedirect.com/science/article/pii/S1110016820305639
 [hdense]: https://arxiv.org/pdf/1709.07330.pdf
@@ -95,6 +95,10 @@ Dice scores (per-case and global). Default bounds are 300 seconds including setu
 and 100 batches; override with `--wall-seconds` and `--max-batches`. Incomplete
 evaluation withholds metrics. Optional `train/resume --final-eval` also respects
 the remaining persistent training budget.
+Metadata-free historical checkpoints require the explicit
+`--allow-legacy-preprocessing` opt-in. The warning means their sampling grid is
+unknown and resulting metrics may not be comparable; known preprocessing
+mismatches remain errors.
 
 ### Predict
 
@@ -104,13 +108,15 @@ dense-unet-3d predict --config config.yaml --checkpoint <path/to/best.pt> \
 ```
 
 Runs inference on a single NIfTI volume and writes the predicted segmentation.
+The same `--allow-legacy-preprocessing` boundary applies to metadata-free
+historical checkpoints.
 
 ---
 
 ## Data setup
 
 1. Download the [LiTS-2017 dataset][lits] (131 labeled training volumes).
-2. Set `pathing.train_img_dirs` in `configs/historical-reference.yaml` to one or more
+2. Set `pathing.train_img_dirs` in the copied `config.yaml` to one or more
    directories holding labeled LiTS training volumes, and set
    `pathing.test_img_dirs` to separate labeled validation directories.
 3. HU values are truncated to `[−200, 250]`; volumes are resized to
@@ -166,10 +172,12 @@ preprocessing. Earlier checkpoints are not validated against this corrected
 pipeline; retraining and real-data evaluation are still required.
 The September 30 audit additionally corrects image/mask resize coordinate grids;
 managed checkpoints made with the older grid are refused on exact resume.
-Whole-volume compression to 12 slices can still erase lesions. Phase A currently
-folds tumor into liver, an implementation choice not specified by the paper's
-two-stage training description. These remain barriers to claiming reproduced
-results; see the [training run audit](docs/research/2026-09-30-training-run-audit.md).
+Whole-volume compression to 12 slices can still erase lesions. The
+`historical_reduced` reference folds tumor into liver during Phase A, an
+implementation choice not specified by the paper's two-stage training description;
+the diagnostic reconstruction keeps all three classes in both phases. These remain
+barriers to claiming reproduced results; see the
+[training run audit](docs/research/2026-09-30-training-run-audit.md).
 
 ---
 

@@ -32,4 +32,4 @@ Limitation: final overfit weights were not persisted by the exercised runner. A 
 
 Long-run gate: **blocked by R7 repeated-step/resume numerical divergence; diagnostic overfit cannot clear execution gate**. The independent R2/full-case/research gates remain open.
 
-The adjacent JSON contains full counts, all update norms, cold/warm memory/runtime, source/config/split/script hashes and numerical replay deviations. Raw cached slabs, complete per-step outputs/gradients, recovery checkpoints, failed-attempt reports/logs and exercised script/config copies are retained under `models/reconstruction-20260930/gpu/`.
+The adjacent JSON contains full counts, all update norms, cold/warm memory/runtime, source/config/split/script hashes and numerical replay deviations. Exact source for both update-bearing attempts and their config is tracked in the [artifact archive](artifacts/README.md); zero-update and reporting-only source is represented by hashes only. Raw cached slabs, complete per-step outputs/gradients, recovery checkpoints and failed-attempt reports/logs remain local-only under `models/reconstruction-20260930/gpu/`; they are not available from a clean clone.

@@ -245,11 +245,12 @@ The verified local environment is Python3.13.13 with torch2.13.0+cu130 on RTX507
 From the reconstruction worktree, using that environment's Python/tools:
 
 ```bash
-PYTHONPATH=. OMP_NUM_THREADS=2 python -m pytest
+PYTHONPATH=$PWD OMP_NUM_THREADS=2 python -m pytest
 ruff check .
 ruff format --check .
 mypy --python-version 3.13 dense_unet_3d
-python scripts/census_reconstruction.py --config configs/reconstruction-reference.yaml \
+PYTHONPATH=$PWD python scripts/census_reconstruction.py \
+  --config configs/reconstruction-reference.yaml \
   --output models/retention-census.json
 ```
 
@@ -259,6 +260,12 @@ not passing or negative scientific results. The separate header/synthetic native
 tiling investigation is `scripts/audit_native_tiling.py`; it is not a production
 sampler. GPU diagnostics use `scripts/diagnose_reconstruction.py` with a finite
 allocation and isolated artifacts; require GPU authorization for a new execution.
+The exact scripts used by both update-bearing GPU attempts and their config are
+archived as non-executable text under
+[research/artifacts](research/artifacts/README.md). The receipt retains hashes
+only for the zero-update failures and reporting-only script.
+Large raw tensors, checkpoints and logs remain local-only and are not part of the
+repository archive.
 
 The inspected package pins are in
 `configs/reconstruction-runtime-constraints.txt`; the shared environment passed
