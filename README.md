@@ -54,8 +54,9 @@ Phase B: reload best checkpoint, 1000 epochs × 10 steps).
 The CLI prints the schedule and budget before allocating training resources.
 It also reports the StepLR horizon and warns when the configured decay reduces
 the final-epoch rate below one millionth of its starting value. The literal
-paper schedule reaches about `7.9e-33` after Phase B; this is a reproduction
-ambiguity, not evidence that 1000 epochs provide useful optimization.
+paper schedule uses about `1.58e-32` for the final Phase B updates, then steps
+to an unused post-phase rate of about `7.89e-33`. This is a reproduction ambiguity,
+not evidence that 1000 epochs provide useful optimization.
 Every completed epoch writes an atomic recovery checkpoint independently of best
 validation improvement. SIGINT/SIGTERM request checkpoint-and-stop at an epoch
 boundary; the full remaining epoch/validation/I/O may exceed the wall allocation.
