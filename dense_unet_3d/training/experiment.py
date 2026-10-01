@@ -18,6 +18,18 @@ def preprocessing_identity(config: dict[str, Any]) -> dict[str, Any]:
     """Identify preprocessing code semantics that configuration alone cannot express."""
     from dense_unet_3d.dataset.prepare_dataset import sampling_mode
 
+    if (
+        sampling_mode(config) == "native_slabs"
+        and config.get("dataset", {}).get("inplane_representation") == "native_tiles_v1"
+    ):
+        from dense_unet_3d.dataset.slabs import spatial_config
+
+        return {
+            "schema_version": PREPROCESSING_SCHEMA_VERSION,
+            "sampling": sampling_mode(config),
+            "coordinate_grid": "native_tiles_v1",
+            "geometry": spatial_config(config["dataset"]),
+        }
     return {
         "schema_version": PREPROCESSING_SCHEMA_VERSION,
         "sampling": sampling_mode(config),
@@ -63,6 +75,22 @@ def validate_experiment(config: dict[str, Any]) -> None:
         raise ValueError("Reconstruction requires explicit native_slabs sampling")
     if not config.get("model"):
         raise ValueError("Reconstruction requires explicit model configuration")
+    from dense_unet_3d.dataset.slabs import spatial_config
+    from dense_unet_3d.model.config import canonical_model_config, model_fingerprint
+
+    model_config = config["model"]
+    # Validate the complete named identity without allocating the model.
+    model_fingerprint(model_config)
+    named_model = canonical_model_config(
+        model_config if isinstance(model_config, str) else model_config["name"]
+    )
+    geometry = spatial_config(config["dataset"])
+    dataset_shape = [1, geometry["window"], geometry["height"], geometry["width"]]
+    if dataset_shape != named_model["input_shape"]:
+        raise ValueError(
+            "Reconstruction dataset.resize_dims must match model.input_shape: "
+            f"dataset {dataset_shape}, model {named_model['input_shape']}"
+        )
     if not experiment.get("split_manifest"):
         raise ValueError("Reconstruction requires a recorded split_manifest")
     execution = config.get("execution", {})

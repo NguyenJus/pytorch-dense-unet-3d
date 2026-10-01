@@ -240,6 +240,10 @@ OMP_NUM_THREADS=2 PYTHONPATH=. /home/justin/projects/pytorch-dense-unet-3d/.venv
 ```
 
 **Production selection stays blocked** at the linked [R2/S3 gate](2026-09-30-paper-reconstruction-handoff.md#s3-spatial-samples-and-streaming-case-reconstruction).
+The following was the feasibility-stage follow-up list; its integration and
+deterministic real-label census items are completed by the implementation
+receipt below. Learning/FOV and production-selection gates remain open.
+
 Follow-up must implement native tile indexing/validity/coordinate metadata,
 source-manifest identity and streaming probability reconstruction; independently
 test boundary tumors, small dimensions and interrupted/corrupt cases; execute a
@@ -258,3 +262,161 @@ The header audit found 106 sources declaring mm and 20 with unknown units; absol
 mm3 for unknown-unit sources is an explicit provisional LiTS inference, while
 per-case retention ratios and erasure are unit-independent. Future census runs
 record that assumption and convert declared meter/micron units explicitly.
+
+## Native tile engineering implementation (#18)
+
+`dataset.sampling: native_slabs` now accepts the opt-in named
+`dataset.inplane_representation: native_tiles_v1` with `resize_img: false`.
+Omitting the representation retains the existing `full_fov_resize` contract;
+reference/default configurations are unchanged. The isolated
+`configs/reconstruction-native-tiles-diagnostic.yaml` retains the recorded
+28/98 split, three-class targets, loss reduction and class weights, and sets
+CPU execution. This configuration is an engineering diagnostic, not approval
+for learning or a long run. No GPU or learning job was launched for this work.
+
+Indexing follows the predeclared depth/H/W Cartesian order with the final
+native tail starts and includes every source coordinate. `NativeSlabDataset`
+returns CDHW tensors with DHW start/valid extents, model-to-source/world maps,
+and the same collatable training dictionary/manifest contracts. NIfTI array
+axes remain explicit; anatomical orientation is not inferred. The native map
+contains permutation and integer translation only, composed with the complete
+source affine, including obliquity/shear. Native model voxel volume equals the
+source determinant. Image padding is constant `clamp_hu_range.min` (−200 by
+default), including when clipping is disabled; target padding is −100 and
+validity is false for all three padded axes. Padding contributes no loss or
+reconstruction weights.
+
+The shared predictor reads only source image geometry and bounded image tiles.
+It completes all H/W tiles for one depth start before flushing slices that no
+future depth start can cover. Its active buffer contains at most one depth
+window of three-class full native probability planes and integer per-pixel
+coverage weights, plus the current tile; the final native uint8 label volume
+is retained. Every valid tile probability is scattered onto the identical
+source coordinate, divided by its actual positive coverage, then argmaxed.
+No native interpolation or target-selected bounds are used. Missing coverage,
+nonfinite image/logits, incompatible logits, or interruption withhold a complete
+prediction; complete-case evaluation forwards the representation and preserves
+historical empty-case Dice semantics.
+
+Native preprocessing checkpoint identity records the complete named spatial
+geometry and `coordinate_grid: native_tiles_v1`; inference rejects a resize or
+tile-size mismatch. Recovery manifests already fingerprint the full geometry,
+source files and ordered samples, so a native/resize or index change cannot
+silently resume. Legacy preprocessing identity remains unchanged.
+
+The augmentation decision is explicitly `disabled_unresolved`. Mirror axes,
+mirror probability, scale distribution, anatomical frame, padding after scale,
+and stochastic transform order have no selected contract. With both flags false,
+there are no random geometric transforms or stochastic retention claims. The
+implemented deterministic order is native image extraction, optional HU clamp,
+then high-end D/H/W padding; categorical extraction/padding shares those bounds.
+Enabled scale or mirror flags are rejected. Paper fidelity and any later
+augmentation implementation/retention audit remain separate open gates.
+
+The native real-label census uses production `tile_bounds`, `tile_slices`, and
+`categorical_tile` extraction/padding for stable native 26-component identities.
+It verifies all voxel coverage, exact identity reassembly, padded-target validity,
+and unique native component volumes, excluding overlap duplication. The same
+predeclared zero-erasure rule remains; native geometric radius is zero and
+there is no permitted native voxel loss. `--aggregate-only` emits split-level
+counts, physical volumes and size strata without source paths, affine grids,
+per-case component arrays or patient imagery. Full logs remain local/untracked.
+
+Reproduce the CPU census on the recorded locally available dataset:
+
+```sh
+OMP_NUM_THREADS=2 PYTHONPATH=. python scripts/census_reconstruction.py \
+  --config configs/reconstruction-native-tiles-diagnostic.yaml \
+  --aggregate-only --output /tmp/native-tile-census18.json
+```
+
+Independent tests use explicit tail start expectations, categorical/unique
+coordinate reassembly, native 26-connected components, rectangular/sub-window
+padding, oblique affine landmarks, probability-conflict overlap, missing coverage,
+interruption, complete-case metrics, checkpoint mismatches, and zero padded loss
+gradients. Learning/FOV effects, context across tile boundaries, throughput/memory
+and schedule exposure remain unmeasured. Passing deterministic retention opens
+investigation of those gates and does not close #18 or select production defaults.
+
+### Completed native real-label census
+
+The existing CPU census completed successfully with **exit status 0** and
+`gate_pass: true`. The tracked
+[aggregate receipt](2026-09-30-native-tile-census-summary.json) contains no
+source paths, per-case grids, component arrays or patient imagery.
+
+| Fixed split | Cases | Native 26-components | Erased components | Core/boundary failures | Covered native slices | Native tiles |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Train | 28 | 138 | 0 | 0 | 14,918 / 14,918 | 11,313 |
+| Validation | 98 | 731 | 0 | 0 | 42,518 / 42,518 | 32,292 |
+| Total | 126 | 869 | 0 | 0 | 57,436 / 57,436 | 43,605 |
+
+Every production-extracted native component identity reassembled exactly, with
+positive coverage for every source voxel and no invalid padding contribution.
+All size strata retained every component and exactly 100% of native component
+volume. Unique native tumor counts were 2,484,416 train and 15,791,080 validation
+voxels; overlap was excluded from volume counts. Native/model/retained physical
+volumes agree. As recorded for this identical split, 106 source headers declare
+mm and 20 omit spatial units: their absolute mm3 values use provisional LiTS
+millimeter provenance, while exact retention and coverage are unit-independent.
+
+Executed command (Python 3.11 CPU dependency environment):
+
+```sh
+OMP_NUM_THREADS=2 PYTHONPATH=. /tmp/dense-unet-pr-ci311/bin/python \
+  scripts/census_reconstruction.py \
+  --config configs/reconstruction-native-tiles-diagnostic.yaml \
+  --aggregate-only --output /tmp/native-tile-census18.json
+```
+
+The session returned exit 0; its local log is `/tmp/native-tile-census18.log`.
+The census command emits the measured aggregate fields, not the complete tracked
+receipt. After successful completion, `exit_code`, `status`,
+`physical_units_disposition` and `command` were added as archival metadata; the
+measured fields match the local raw output. The later `provenance` metadata pins
+the recoverable original PR #22 head, package tree, census script, config and
+ordered split manifest. The physical-unit note is curated from the pinned
+[prior retention summary](2026-09-30-retention-census-summary.json): its 126
+per-case `source_spatial_units` entries reproduce 106 mm / 20 unknown and its
+`verified_source_spatial_units` totals; the native aggregate command does not
+emit those counts. That revision captures source **after the run**; it is
+not a recorded execution revision. Dataset image/label hashes and the transient
+CPU environment are not archived in this aggregate receipt, so these bindings
+identify the available source/config/split without proving identical raw inputs
+or dependencies in a future rerun.
+
+To recover the pinned implementation, use commit
+`25d6b6ff16723b69ce9b56207855888876d66454` in a separate checkout and verify the
+SHA256 values in `provenance.files` against its file bytes before rerunning the
+command above with a suitable CPU interpreter and the same local dataset.
+For archival augmentation, return to the final PR checkout containing the new
+`provenance` metadata and use the original preserved raw output at
+`/tmp/native-tile-census18.json`. The pinned original commit does not contain
+that metadata. Reconstruct the historical receipt there with:
+
+```sh
+python - <<'PY_ARCHIVE'
+import json
+from pathlib import Path
+
+receipt = json.loads(Path(
+    "docs/research/2026-09-30-native-tile-census-summary.json"
+).read_text())
+raw = json.loads(Path("/tmp/native-tile-census18.json").read_text())
+# Reuse the recorded metadata only to reconstruct this historical receipt.
+# A new run needs its own observed exit code, command and provenance.
+for key in ("exit_code", "status", "physical_units_disposition", "command", "provenance"):
+    raw[key] = receipt[key]
+Path("/tmp/native-tile-census18-archived.json").write_text(
+    json.dumps(raw, indent=2) + "\n"
+)
+PY_ARCHIVE
+```
+
+This post-processing preserves measured fields and reconstructs the tracked
+receipt from the original raw output; it is not part of the census executable.
+The full real-label deterministic retention result supports this named native
+representation's zero-erasure geometry requirement, replacing the refuted resize
+candidate for further investigation. It does **not** establish useful predictions,
+learning/FOV adequacy, paper augmentation fidelity, or measured runtime/memory.
+Those gates remain open; #18 is not closed and production defaults remain gated.

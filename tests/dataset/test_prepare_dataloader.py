@@ -221,7 +221,57 @@ class TestValLoaderFromTestDirs:
 
 
 class TestPreflightConfig:
-    def test_checks_both_splits_before_loader_or_model_creation(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("representation", ["full_fov_resize", "native_tiles_v1"])
+    @pytest.mark.parametrize(
+        ("update", "message"),
+        [
+            ({"random_hflip": True}, "augmentation is unresolved"),
+            ({"scale_img": True}, "augmentation is unresolved"),
+            ({"scale_img": "false"}, "augmentation flags must be booleans"),
+            ({"resize_dims": {"D": 0, "H": 3, "W": 4}}, "dimensions must be positive"),
+            ({"resize_dims": {"D": 2, "H": 3.5, "W": 4}}, "dimensions must be integers"),
+            ({"resize_dims": {"D": 2, "H": 3}}, "dimensions must be integers"),
+        ],
+    )
+    def test_native_spatial_errors_are_rejected_before_discovery(
+        self, monkeypatch, representation, update, message
+    ):
+        cfg = _config("unused")
+        cfg["dataset"].update(
+            sampling="native_slabs",
+            inplane_representation=representation,
+            resize_img=representation == "full_fov_resize",
+            random_hflip=False,
+            scale_img=False,
+        )
+        cfg["dataset"].update(update)
+
+        def unexpected_discovery(_directories):
+            pytest.fail("invalid spatial settings must fail before scanning source data")
+
+        monkeypatch.setattr(
+            "dense_unet_3d.dataset.prepare_dataset.discover_pairs", unexpected_discovery
+        )
+        with pytest.raises(ValueError, match=message):
+            preflight_config(cfg)
+
+    @pytest.mark.parametrize("representation", ["full_fov_resize", "native_tiles_v1"])
+    def test_native_resize_contract_is_checked(self, representation):
+        cfg = _config("unused")
+        cfg["dataset"].update(
+            sampling="native_slabs",
+            inplane_representation=representation,
+            resize_img=representation != "full_fov_resize",
+            random_hflip=False,
+            scale_img=False,
+        )
+        with pytest.raises(ValueError, match="requires resize_img="):
+            preflight_config(cfg)
+
+    @pytest.mark.parametrize("representation", [None, "full_fov_resize", "native_tiles_v1"])
+    def test_checks_both_splits_before_loader_or_model_creation(
+        self, tmp_path: Path, representation
+    ) -> None:
         train_dir = tmp_path / "train"
         validation_dir = tmp_path / "validation"
         train_dir.mkdir()
@@ -235,4 +285,15 @@ class TestPreflightConfig:
 
         cfg = _config(str(train_dir))
         cfg["pathing"]["test_img_dirs"] = [str(validation_dir)]
+        if representation is not None:
+            cfg["dataset"].update(
+                sampling="native_slabs",
+                inplane_representation=representation,
+                resize_dims={"D": 2, "H": 3, "W": 4},
+                random_hflip=False,
+                scale_img=False,
+            )
+            # Exercise the representation-aware omitted resize default as well
+            # as preserving arbitrary geometry for standalone raw-data audits.
+            cfg["dataset"].pop("resize_img")
         assert preflight_config(cfg) == {"train": 1, "validation": 1}

@@ -142,13 +142,22 @@ def _load_model_from_checkpoint(
             configured_dataset = config.get("dataset", {})
             for key, default in (
                 ("sampling", "whole_volume"),
-                ("resize_img", True),
+                ("inplane_representation", "full_fov_resize"),
                 ("resize_dims", {"D": 12, "H": 224, "W": 224}),
                 ("clamp_hu", True),
                 ("clamp_hu_range", {"min": -200, "max": 250}),
             ):
                 if checkpoint_dataset.get(key, default) != configured_dataset.get(key, default):
                     raise ValueError(f"Checkpoint preprocessing mismatch: {key}")
+
+            # Native tiles preserve the grid by default; omission and explicit
+            # false must have the same meaning as in spatial_config().
+            def resize_enabled(dataset: dict[str, Any]) -> Any:
+                default = dataset.get("inplane_representation") != "native_tiles_v1"
+                return dataset.get("resize_img", default)
+
+            if resize_enabled(checkpoint_dataset) != resize_enabled(configured_dataset):
+                raise ValueError("Checkpoint preprocessing mismatch: resize_img")
         if actual_identity is None:
             if not allow_legacy_preprocessing:
                 raise ValueError(

@@ -85,6 +85,9 @@ def _evaluate_native_cases(
     denominators = [0, 0]
     # Predictor accepts the declared spatial config, not label-derived samples.
     cfg = {
+        "sampling": "native_slabs",
+        "inplane_representation": dataset.geometry["representation"],
+        "resize_img": dataset.geometry["representation"] == "full_fov_resize",
         "resize_dims": {
             "D": dataset.geometry["window"],
             "H": dataset.geometry["height"],

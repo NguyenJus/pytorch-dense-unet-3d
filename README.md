@@ -148,8 +148,10 @@ The paper's 3.6M and 36.27M parameter claims conflict. The old ±15% count band
 has been removed as an acceptance test; neither graph is justified by matching
 those claims. Exact source-backed topology, epoch semantics and data retention
 remain gates. Full-FOV 224×224 resizing erases some native tumor components, so
-that representation is blocked for long training. Native in-plane tiling is an
-explicitly investigated follow-up, not a silently selected replacement.
+that representation is blocked for long training. The opt-in `native_tiles_v1`
+diagnostic implements native in-plane tiling and passes the fixed-split deterministic retention census. Learning/FOV, augmentation,
+schedule/exposure and throughput/memory evidence remain open before production
+selection.
 
 See the [implementation and evidence ledger](docs/research/2026-09-30-reconstruction-implementation.md),
 [model manifest](docs/research/2026-09-30-model-manifest.json), and
@@ -218,7 +220,8 @@ current release.
 
 - **Phase 2 (owner improvements):**
   - Resolve the diagnostic reconstruction's remaining evidence and learning gates.
-  - Native in-plane tile integration beyond the implemented native-depth slabs.
+  - Validate learning/FOV, augmentation, schedule/exposure and throughput/memory
+    for the implemented opt-in native in-plane tiles before production selection.
   - Separately named Dice / Tversky loss or AdamW/cosine experiments; these are
     not corrections to the paper recipe.
 - **Phase 3 (speculative):** open-weight finetuning from a published
