@@ -260,7 +260,8 @@ def write_markdown(report_path, receipt):
     model = receipt.get("model", {})
     parameters = model.get("parameters", "unknown")
     model_name = model.get("model_config", {}).get("name", "unknown model")
-    gpu = receipt.get("gpu_info", "unknown GPU").splitlines()[0]
+    gpu_lines = str(receipt.get("gpu_info", "unknown GPU")).splitlines()
+    gpu = gpu_lines[0] if gpu_lines else "unknown GPU"
     resolved = receipt.get("resolved_config", {})
     dims = resolved.get("dataset", {}).get("resize_dims", {})
     shape = tuple(dims.get(k, "?") for k in ("D", "H", "W"))
@@ -338,7 +339,8 @@ def write_markdown(report_path, receipt):
             last = steps[-min(2, len(steps)) :]
             train_first = sum(s["tumor_dice"] for s in first) / len(first)
             train_last = sum(s["tumor_dice"] for s in last) / len(last)
-            bn_layers = receipt.get("profile", [{}])[-1].get("bn_layers", "unknown")
+            profiles = receipt.get("profile") or [{}]
+            bn_layers = profiles[-1].get("bn_layers", "unknown")
             lines += [
                 f"Train-forward mean Dice over the first/last {len(first)} steps was "
                 f"{train_first:.6f} → {train_last:.6f}. These predictions show training fit but "

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Reduced-depth 3D DenseUNet for liver and lesion segmentation, inspired by Alalwan et al."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Justin Nguyen", email = "JustinTNguyen64@gmail.com" }]
 dependencies = [
     "torch>=2.0",

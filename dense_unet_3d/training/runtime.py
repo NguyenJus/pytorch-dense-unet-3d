@@ -217,7 +217,7 @@ def describe_schedule(config: dict[str, Any]) -> dict[str, Any]:
     for phase, default in (("phase_a", 100), ("phase_b", 1000)):
         epochs = training.get(phase + "_epochs", default)
         steps = training.get(phase + "_steps_per_epoch", training.get("steps_per_epoch", 10))
-        if not isinstance(epochs, int) or not isinstance(steps, int) or min(epochs, steps) < 1:
+        if type(epochs) is not int or type(steps) is not int or min(epochs, steps) < 1:
             raise ValueError("Phase epochs and steps must be positive integers")
         phases[phase] = {"epochs": epochs, "steps_per_epoch": steps, "updates": epochs * steps}
         if scheduler_enabled:
@@ -245,7 +245,7 @@ def describe_schedule(config: dict[str, Any]) -> dict[str, Any]:
                     f"{step * steps} mini-batch updates; verify the intended training horizon."
                 )
     cadence = config.get("runtime", {}).get("validation_every", 1)
-    if not isinstance(cadence, int) or cadence < 1:
+    if type(cadence) is not int or cadence < 1:
         raise ValueError("runtime.validation_every must be a positive integer")
     return {
         "phases": phases,

@@ -83,6 +83,29 @@ def test_disabled_scheduler_ignores_scheduler_configuration(tmp_path):
     assert all("learning_rate" not in phase for phase in plan["phases"].values())
 
 
+@pytest.mark.parametrize(
+    ("section", "field"),
+    [
+        ("training", "phase_a_epochs"),
+        ("training", "phase_b_epochs"),
+        ("training", "phase_a_steps_per_epoch"),
+        ("training", "phase_b_steps_per_epoch"),
+        ("runtime", "validation_every"),
+    ],
+)
+@pytest.mark.parametrize("value", [True, False])
+def test_positive_integer_schedule_fields_reject_booleans(tmp_path, section, field, value):
+    cfg = config(tmp_path)
+    cfg[section][field] = value
+    message = (
+        "runtime.validation_every must be a positive integer"
+        if field == "validation_every"
+        else "Phase epochs and steps must be positive integers"
+    )
+    with pytest.raises(ValueError, match=message):
+        describe_schedule(cfg)
+
+
 @pytest.mark.parametrize("enabled", [True, False])
 def test_epoch_events_report_used_and_next_lr(tmp_path, enabled, capsys):
     cfg = config(tmp_path, scheduler=enabled)
