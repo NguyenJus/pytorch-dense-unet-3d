@@ -98,5 +98,26 @@
   "exit_code": 0,
   "status": "deterministic_native_tile_retention_pass_learning_fov_open",
   "physical_units_disposition": "Source-unit audit on the identical fixed split: 106 headers declare mm; 20 omit spatial units. For those 20, absolute mm3 provisionally assumes LiTS millimeter provenance. Exact native retention and coverage gates are unit-independent.",
-  "command": "OMP_NUM_THREADS=2 PYTHONPATH=. /tmp/dense-unet-pr-ci311/bin/python scripts/census_reconstruction.py --config configs/reconstruction-native-tiles-diagnostic.yaml --aggregate-only --output /tmp/native-tile-census18.json"
+  "command": "OMP_NUM_THREADS=2 PYTHONPATH=. /tmp/dense-unet-pr-ci311/bin/python scripts/census_reconstruction.py --config configs/reconstruction-native-tiles-diagnostic.yaml --aggregate-only --output /tmp/native-tile-census18.json",
+  "provenance": {
+    "source_snapshot_revision": "25d6b6ff16723b69ce9b56207855888876d66454",
+    "source_snapshot_disposition": "Original PR #22 head captured source after the successful census; execution revision was not recorded. Archival metadata was added after the run; measured fields are unchanged.",
+    "package_tree_git_sha1": "35e43240d1bb06390572c46cbf61f0c14bd93318",
+    "files": {
+      "scripts/census_reconstruction.py": {
+        "sha256": "0a207c013e8b8ba293bf8d584ba99f9aefd83dfb43ed5bbe17d2e6722612f8c7"
+      },
+      "configs/reconstruction-native-tiles-diagnostic.yaml": {
+        "sha256": "b9608f556b9d7c45462e400798ab2b9fead226def2061400a5ee0c50d34c5505"
+      },
+      "docs/research/2026-09-30-split-manifest.json": {
+        "sha256": "0dd1bbc3d65e292ab0c00995ee83c579b6cf11868b7cc2ae6f248ef16e7c5f84"
+      },
+      "docs/research/2026-09-30-retention-census-summary.json": {
+        "sha256": "b7679b5bf9aa722fd82e78be3a94b69be26468cf15cd7f131a68ad35ff9918da"
+      }
+    },
+    "raw_inputs_disposition": "Ordered split manifest is pinned; raw dataset image/label hashes and the CPU dependency environment are not archived in this aggregate receipt.",
+    "physical_units_evidence": "Curated from the pinned prior full-FOV retention summary: its 126 per-case source_spatial_units entries count 106 mm and 20 unknown, matching verified_source_spatial_units. Not emitted by the native aggregate census."
+  }
 }

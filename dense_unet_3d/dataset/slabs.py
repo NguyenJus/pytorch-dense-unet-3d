@@ -225,7 +225,8 @@ class NativeSlabDataset(Dataset):
         array = np.asarray(target_img.dataobj[tile_slices(start, valid)])
         if not np.isfinite(array).all() or not np.isin(array, [0, 1, 2]).all():
             raise ValueError("target tile labels must be finite integers in {0,1,2}")
-        target, _ = categorical_tile(target_img.dataobj, start, self.geometry)
+        target = torch.from_numpy(array.astype(np.int64)).permute(2, 0, 1)[None]
+        target = pad_tile(target, valid, self.geometry, -100)
         mapping = tile_to_source(start)
         return {
             "image": tensor,

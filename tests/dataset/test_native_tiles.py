@@ -1,6 +1,7 @@
 """Independent native-grid expectations; no resize/grid helpers used as oracle."""
 
 from copy import deepcopy
+from pathlib import Path
 
 import nibabel as nib
 import numpy as np
@@ -10,7 +11,7 @@ from scipy import ndimage
 from torch.utils.data import DataLoader
 
 from dense_unet_3d.cli import _load_model_from_checkpoint, _TinyStub
-from dense_unet_3d.dataset.slabs import NativeSlabDataset, spatial_config
+from dense_unet_3d.dataset.slabs import NativeSlabDataset, categorical_tile, spatial_config
 from dense_unet_3d.evaluation.evaluate import EvaluationInterrupted, evaluate
 from dense_unet_3d.evaluation.predict import PredictionInterrupted, predict_volume
 from dense_unet_3d.training.experiment import experiment_metadata
@@ -151,6 +152,75 @@ def test_native_checkpoint_identity_rejects_resize_and_changed_grid(tmp_path):
         spatial_config({**tile_config(), "resize_img": True})
     with pytest.raises(ValueError, match="augmentation is unresolved"):
         spatial_config({**tile_config(), "scale_img": True})
+
+
+@pytest.mark.parametrize("checkpoint_explicit", [False, True])
+def test_native_checkpoint_resize_default_round_trips(tmp_path, checkpoint_explicit):
+    cfg = {"dataset": tile_config()}
+    omitted = deepcopy(cfg)
+    omitted["dataset"].pop("resize_img")
+    checkpoint_config, load_config = (cfg, omitted) if checkpoint_explicit else (omitted, cfg)
+    assert (
+        experiment_metadata(cfg)["preprocessing_identity"]
+        == experiment_metadata(omitted)["preprocessing_identity"]
+    )
+    model = _TinyStub(torch.nn.Conv3d(1, 3, 1))
+    path = tmp_path / "native.pt"
+    torch.save(
+        {"model_state_dict": model.state_dict(), **experiment_metadata(checkpoint_config)}, path
+    )
+
+    loaded = _load_model_from_checkpoint(str(path), torch.device("cpu"), load_config)
+
+    sample = torch.arange(24, dtype=torch.float32).reshape(1, 1, 2, 3, 4)
+    torch.testing.assert_close(loaded(sample), model(sample))
+
+
+@pytest.mark.parametrize("compressed", [False, True])
+def test_native_tile_reads_target_proxy_once_and_pads_all_axes(tmp_path, monkeypatch, compressed):
+    labels = np.array([[[1], [2]]], dtype=np.uint8)
+    image_path, target_path = write_case(tmp_path, "a", labels)
+    if compressed:
+        for source in (image_path, target_path):
+            nib.save(nib.load(source), source + ".gz")
+            Path(source).unlink()
+        target_path += ".gz"
+    dataset = NativeSlabDataset([str(tmp_path)], tile_config())
+    reads = []
+    original_getitem = nib.arrayproxy.ArrayProxy.__getitem__
+
+    def read(proxy, slices):
+        if str(proxy.file_like) == target_path:
+            reads.append(slices)
+        return original_getitem(proxy, slices)
+
+    monkeypatch.setattr(nib.arrayproxy.ArrayProxy, "__getitem__", read)
+    sample = dataset[0]
+
+    assert len(reads) == 1
+    expected = torch.full((1, 2, 3, 4), -100, dtype=torch.int64)
+    expected[0, 0, 0, :2] = torch.tensor([1, 2])
+    torch.testing.assert_close(sample["target"], expected)
+    assert torch.equal(sample["valid_mask"], expected != -100)
+
+
+@pytest.mark.parametrize("label", [np.nan, 0.5, 3.0])
+def test_native_tile_validates_labels_before_integer_conversion(tmp_path, label):
+    _, target_path = write_case(tmp_path, "a", np.zeros((1, 1, 1), np.uint8))
+    nib.save(nib.Nifti1Image(np.full((1, 1, 1), label), np.eye(4)), target_path)
+    dataset = NativeSlabDataset([str(tmp_path)], tile_config())
+    with pytest.raises(ValueError, match="target tile labels must be finite integers"):
+        dataset[0]
+
+
+def test_categorical_helper_retains_arbitrary_grid_and_identity_values():
+    geometry = spatial_config(tile_config(height=2, width=5, depth=3))
+    source = np.arange(35, dtype=np.int64).reshape(5, 7, 1) + 1000
+    target, valid = categorical_tile(source, (0, 3, 4), geometry)
+    assert valid == (1, 2, 3)
+    expected = torch.full((1, 3, 2, 5), -100, dtype=torch.int64)
+    expected[0, 0, :2, :3] = torch.tensor([[1025, 1026, 1027], [1032, 1033, 1034]])
+    torch.testing.assert_close(target, expected)
 
 
 def test_unique_coordinate_ramp_and_uncovered_pixel_rejection(tmp_path, monkeypatch):

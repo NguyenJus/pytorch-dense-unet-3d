@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from dense_unet_3d.dataset.LITSDataset import LITSDataset, _case_id, discover_pairs, preflight_pairs
-from dense_unet_3d.dataset.slabs import NativeSlabDataset
+from dense_unet_3d.dataset.slabs import NativeSlabDataset, spatial_config
 from dense_unet_3d.dataset.transforms.ClampValues import ClampValues
 from dense_unet_3d.dataset.transforms.RandomHorizontalFlip import RandomHorizontalFlip
 from dense_unet_3d.dataset.transforms.ReshapeTensor import ReshapeTensor
@@ -116,7 +116,8 @@ def preflight_config(config: dict, *, full_decode: bool = False) -> dict[str, in
     or CUDA are created.  ``full_decode`` adds segmentation-label validation;
     header-only checks are useful for a fast standalone audit.
     """
-    sampling_mode(config)
+    if sampling_mode(config) == "native_slabs":
+        spatial_config(config["dataset"])
     pathing = config["pathing"]
     train_dirs = pathing.get("train_img_dirs")
     test_dirs = pathing.get("test_img_dirs")

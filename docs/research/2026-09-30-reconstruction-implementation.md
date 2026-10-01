@@ -29,7 +29,7 @@ inferred by fitting parameter count.
 | Gate | Disposition, evidence and checks | Consequence / issue |
 | --- | --- | --- |
 | R1 architecture | **Supported** full counts and standard decoder; **refuted** literal impossible padding/unresized skip geometry and historical half-count fidelity. **Provisionally adopted** stated-dimension repairs and resized figure skips. **Unresolved** exact skip taps, transition compression/order and contradictory channel/count claims. Figure was inspected visually; fixed-input CPU forward/backward and exact stage manifest passed. | Explicit diagnostic candidate only; no architecture lock. [#16](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/16). |
-| R2 input construction | Input size is **supported**; author sample construction is **unresolved**. Native-depth slabs are a **provisional engineering representation** with executable coverage/coordinate checks. Full-FOV resize is **refuted as long-run input** by completely erased native 26-connected tumor components. Boundary-shell allowance was declared before census; no post-hoc tolerance change. | Stop this representation's training default. Native tiling investigated explicitly; production selection requires further integration/real-census/FOV-learning evidence. [#18](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/18). |
+| R2 input construction | Input size is **supported**; author sample construction is **unresolved**. Native-depth slabs are a **provisional engineering representation** with executable coverage/coordinate checks. Full-FOV resize is **refuted as long-run input** by completely erased native 26-connected tumor components. Boundary-shell allowance was declared before census; no post-hoc tolerance change. | Stop full-FOV resize as a training default. Opt-in `native_tiles_v1` integration and fixed-split deterministic real-label retention are complete; production selection still requires FOV/learning, augmentation, schedule/exposure and throughput/memory evidence. [#18](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/18). |
 | R3 targets/transfer | Same three-class task and selected-A weight transfer **supported** by combined §§3–3.2; implicit liver-only phase is **refuted as paper fact**. Fresh optimizer/scheduler is **provisionally adopted**, author transfer-state details **unresolved**. CPU tests verify tumor gradients, best selection and exact resumed transfer. | `phase_a_targets=three_class`, `phase_transfer_policy=best_weights_fresh_optimizer`; no exact historical reset claim. [#17](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/17). |
 | R4 schedule | Literal reporting is **supported**, epoch/subepoch/update meaning **unresolved**. The stopped run **refutes** the literal minibatch schedule as a useful long continuation. Figure2's 0–100 axes and DenseUNet157 legends were verified visually and retained as counterevidence. | Preserve A100/B1000 ×10 and halving/10 in unlaunchable reference config. Bounded short diagnostic has a separate identity; no floor/cosine/Adam substitution. [#17](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/17). |
 | R5 loss | Eq.(2) weighted CE divided by voxel count is **supported** by independent visual transcription. Explicit valid-voxel mean, unchanged weights 0.2/1.2/2.2; padding absent from numerator/denominator. Manual value/gradient/padding tests pass. Summing unreduced CE avoids an unsupported strict CUDA reduced-NLL kernel without changing the equation. | `valid_voxel_mean` recorded in config/checkpoints. Historical weighted mean remains named and distinct. |
@@ -55,8 +55,11 @@ no verified author implementation; absence is explicitly unresolved, not proof.
   This is a short engineering protocol, not replacement paper epoch semantics.
 - [Split manifest](2026-09-30-split-manifest.json): original 28 training and 98
   validation IDs, enforced before dataset construction. The native index contains
-  1,257 training and 3,588 validation slabs. Native tiles would require 9× as
-  many samples, and are an unselected follow-up.
+  1,257 training and 3,588 validation slabs for full-FOV resize. The opt-in
+  `configs/reconstruction-native-tiles-diagnostic.yaml` implements native tiles:
+  11,313 training and 32,292 validation samples (9× the slab counts), with
+  deterministic real-label retention verified. Production selection remains
+  gated.
 - Source files are hashed once per invocation, independently of repeated slabs;
   geometry, sample index, padding, labels, loss, optimizer, schedule, execution
   and model graph enter continuation identity. Schema2 rejects old exact-resume
@@ -119,7 +122,12 @@ not depend on that inference, but absolute/pooled physical-volume figures do.
 The census utility now converts declared meter/micron units and labels unknown
 units explicitly; no current cohort scalar changes because all declared units
 are mm. Native tiling feasibility passed six synthetic geometries and an oblique
-landmark, but production integration and real-label evidence remain [#18](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/18).
+landmark. Subsequent opt-in `native_tiles_v1` integration and the
+[native real-label census](2026-09-30-native-tile-census-summary.json) completed:
+126 cases, 869 components, zero erasures, complete voxel coverage and exact
+identity reassembly. This closes the deterministic retention requirement for
+that diagnostic representation; FOV/learning, augmentation, schedule/exposure
+and throughput/memory remain open in [#18](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/18).
 
 GPU work consumed **90 optimizer updates and 301.525 seconds** of the declared
 100-update/900-second allocation, with no long launch. Warm forward peak allocated
@@ -154,7 +162,7 @@ required tracked follow-ups, not an implicit authorization to start long trainin
 
 Next action: use issues #16–#19 to resolve the exact remaining gates. The highest
 value engineering work is numerical repeatability/fixed-weight normalization
-isolation and production native-tile integration, with independent evidence
-checks. Do not start a long run or relabel an alternative optimizer/schedule as
-paper reconstruction. Code remains in the isolated task worktree for review;
+isolation, plus native-tile learning/FOV, augmentation, schedule/exposure and
+throughput/memory evidence, with independent checks. Do not start a long run or
+relabel an alternative optimizer/schedule as paper reconstruction. Code remains in the isolated task worktree for review;
 no PR merge or training continuation was performed.

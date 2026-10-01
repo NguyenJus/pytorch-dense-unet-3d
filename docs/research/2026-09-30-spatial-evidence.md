@@ -240,6 +240,10 @@ OMP_NUM_THREADS=2 PYTHONPATH=. /home/justin/projects/pytorch-dense-unet-3d/.venv
 ```
 
 **Production selection stays blocked** at the linked [R2/S3 gate](2026-09-30-paper-reconstruction-handoff.md#s3-spatial-samples-and-streaming-case-reconstruction).
+The following was the feasibility-stage follow-up list; its integration and
+deterministic real-label census items are completed by the implementation
+receipt below. Learning/FOV and production-selection gates remain open.
+
 Follow-up must implement native tile indexing/validity/coordinate metadata,
 source-manifest identity and streaming probability reconstruction; independently
 test boundary tumors, small dimensions and interrupted/corrupt cases; execute a
@@ -366,6 +370,51 @@ OMP_NUM_THREADS=2 PYTHONPATH=. /tmp/dense-unet-pr-ci311/bin/python \
 ```
 
 The session returned exit 0; its local log is `/tmp/native-tile-census18.log`.
+The census command emits the measured aggregate fields, not the complete tracked
+receipt. After successful completion, `exit_code`, `status`,
+`physical_units_disposition` and `command` were added as archival metadata; the
+measured fields match the local raw output. The later `provenance` metadata pins
+the recoverable original PR #22 head, package tree, census script, config and
+ordered split manifest. The physical-unit note is curated from the pinned
+[prior retention summary](2026-09-30-retention-census-summary.json): its 126
+per-case `source_spatial_units` entries reproduce 106 mm / 20 unknown and its
+`verified_source_spatial_units` totals; the native aggregate command does not
+emit those counts. That revision captures source **after the run**; it is
+not a recorded execution revision. Dataset image/label hashes and the transient
+CPU environment are not archived in this aggregate receipt, so these bindings
+identify the available source/config/split without proving identical raw inputs
+or dependencies in a future rerun.
+
+To recover the pinned implementation, use commit
+`25d6b6ff16723b69ce9b56207855888876d66454` in a separate checkout and verify the
+SHA256 values in `provenance.files` against its file bytes before rerunning the
+command above with a suitable CPU interpreter and the same local dataset.
+For archival augmentation, return to the final PR checkout containing the new
+`provenance` metadata and use the original preserved raw output at
+`/tmp/native-tile-census18.json`. The pinned original commit does not contain
+that metadata. Reconstruct the historical receipt there with:
+
+```sh
+python - <<'PY_ARCHIVE'
+import json
+from pathlib import Path
+
+receipt = json.loads(Path(
+    "docs/research/2026-09-30-native-tile-census-summary.json"
+).read_text())
+raw = json.loads(Path("/tmp/native-tile-census18.json").read_text())
+# Reuse the recorded metadata only to reconstruct this historical receipt.
+# A new run needs its own observed exit code, command and provenance.
+for key in ("exit_code", "status", "physical_units_disposition", "command", "provenance"):
+    raw[key] = receipt[key]
+Path("/tmp/native-tile-census18-archived.json").write_text(
+    json.dumps(raw, indent=2) + "\n"
+)
+PY_ARCHIVE
+```
+
+This post-processing preserves measured fields and reconstructs the tracked
+receipt from the original raw output; it is not part of the census executable.
 The full real-label deterministic retention result supports this named native
 representation's zero-erasure geometry requirement, replacing the refuted resize
 candidate for further investigation. It does **not** establish useful predictions,
