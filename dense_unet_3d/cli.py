@@ -183,6 +183,8 @@ def _print_training_plan(config: dict[str, Any], args: argparse.Namespace) -> No
     for phase in schedule["phases"].values():
         phase["validation_passes"] = (phase["epochs"] + cadence - 1) // cadence
     sys.stdout.write("Resolved training plan:\n" + json.dumps(schedule, sort_keys=True) + "\n")
+    for warning in schedule["warnings"]:
+        sys.stdout.write(f"Schedule warning: {warning}\n")
     sys.stdout.write(
         "Validation: full configured split on each scheduled validation; counts pending CPU preflight. "
         "Best selection uses those validations.\n"
@@ -439,7 +441,7 @@ def _cmd_predict(args: argparse.Namespace) -> None:
         int(resize_dims.get("W", 224)),
     )
     orig_dhw = (volume.shape[2], volume.shape[3], volume.shape[4])
-    volume = F.interpolate(volume, size=model_dhw, mode="trilinear", align_corners=True)
+    volume = F.interpolate(volume, size=model_dhw, mode="trilinear", align_corners=False)
 
     # Run inference.
     with torch.no_grad():
@@ -448,8 +450,8 @@ def _cmd_predict(args: argparse.Namespace) -> None:
     # Argmax over channel dim → (1, 1, D, H, W) label volume at the model resolution.
     pred = logits.argmax(dim=1, keepdim=True).float()
 
-    # Resize labels back to the ORIGINAL input spatial dims (nearest-neighbour).
-    pred = F.interpolate(pred, size=orig_dhw, mode="nearest")
+    # Map labels back on the same half-pixel grid, preserving discrete classes.
+    pred = F.interpolate(pred, size=orig_dhw, mode="nearest-exact")
     pred_np = pred.squeeze(0).squeeze(0).cpu().numpy().astype(np.int16)  # (D, H, W)
 
     # Back to NIfTI HWD order: (D, H, W) → (H, W, D).

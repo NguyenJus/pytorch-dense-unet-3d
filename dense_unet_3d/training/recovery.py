@@ -75,10 +75,15 @@ def _transform_identity(transform: Any) -> Any:
         parameters = json.loads(json.dumps(parameters, allow_nan=False))
     except (TypeError, ValueError) as exc:
         raise ValueError("Unsupported preprocessing parameter state") from exc
-    return {
+    identity = {
         "type": type(transform).__module__ + "." + type(transform).__qualname__,
         "parameters": parameters,
     }
+    if type(transform) in (Resize, ScaleAndPadOrCrop):
+        # Instance parameters alone cannot identify a change to sampling semantics.
+        # Old managed checkpoints must not resume across this preprocessing fix.
+        identity["coordinate_grid_version"] = "half_pixel_v1"
+    return identity
 
 
 def _dataset_identity(dataset: Any) -> Any:
@@ -454,6 +459,7 @@ def run_recoverable(
             train_loader = driver._LiverOnlyLoader(train_loader)
             val_loader = driver._LiverOnlyLoader(val_loader) if val_loader is not None else None
         start = time.monotonic()
+        learning_rates = [group["lr"] for group in optimizer.param_groups]
         session.event("training", phase=phase, epoch=epoch, global_step=state["global_step"])
         loss = driver._run_epoch(
             config=config,
@@ -468,6 +474,7 @@ def run_recoverable(
         training_seconds = time.monotonic() - start
         if scheduler is not None:
             scheduler.step()
+        next_learning_rates = [group["lr"] for group in optimizer.param_groups]
         metrics = {"train_loss": loss}
         validation_seconds = 0.0
         selection = None
@@ -523,6 +530,8 @@ def run_recoverable(
             epoch=epoch,
             global_step=state["global_step"],
             metrics=metrics,
+            learning_rates=learning_rates,
+            next_learning_rates=next_learning_rates,
             training_seconds=training_seconds,
             validation_seconds=validation_seconds,
             epoch_seconds=elapsed,
@@ -531,6 +540,8 @@ def run_recoverable(
         tqdm.write(
             f"{phase} epoch {epoch}/{phase_schedule['epochs']} step={state['global_step']} "
             f"loss={loss:.5g} train={training_seconds:.2f}s val={validation_seconds:.2f}s "
+            f"lr={learning_rates} next_lr={next_learning_rates} "
+            f"liver_dice={metrics.get('liver_per_case')} tumor_dice={metrics.get('tumor_per_case')} "
             f"phase ETA={eta['phase_seconds']:.1f}s (n={len(measured)}; range={eta['range_seconds']})"
         )
         reason = session.stop_reason()

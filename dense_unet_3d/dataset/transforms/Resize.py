@@ -14,8 +14,8 @@ class Resize:
         :param size:    tuple containing the desired output size of the 3D image
                         The dimensions should be in format (D x H x W)
         :param mode:    interpolation mode. Use ``"trilinear"`` (default) for
-                        intensity volumes; use ``"nearest"`` for integer
-                        segmentation masks so label values are never averaged.
+                        intensity volumes; use ``"nearest-exact"`` for integer
+                        segmentation masks on the same half-pixel coordinate grid.
         """
         self.size = size
         self.mode = mode
@@ -29,7 +29,7 @@ class Resize:
         """
         # align_corners is only valid for linear/bilinear/trilinear modes;
         # it must be None for nearest-neighbour to avoid a runtime error.
-        align_corners = True if self.mode == "trilinear" else None
+        align_corners = False if self.mode == "trilinear" else None
         return F.interpolate(
             img.unsqueeze(0), self.size, mode=self.mode, align_corners=align_corners
         ).squeeze(0)

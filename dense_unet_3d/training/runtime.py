@@ -189,13 +189,40 @@ def request_stop(run_dir: str | Path) -> None:
 
 def describe_schedule(config: dict[str, Any]) -> dict[str, Any]:
     training = config["training"]
-    phases = {}
+    phases: dict[str, Any] = {}
+    schedule_warnings = []
     for phase, default in (("phase_a", 100), ("phase_b", 1000)):
         epochs = training.get(phase + "_epochs", default)
         steps = training.get(phase + "_steps_per_epoch", training.get("steps_per_epoch", 10))
         if not isinstance(epochs, int) or not isinstance(steps, int) or min(epochs, steps) < 1:
             raise ValueError("Phase epochs and steps must be positive integers")
         phases[phase] = {"epochs": epochs, "steps_per_epoch": steps, "updates": epochs * steps}
+        if training.get("use_scheduler") and training.get("scheduler") == "StepLR":
+            step = training["scheduler_step"]
+            gamma = training["scheduler_gamma"]
+            initial_lr = training["learning_rate"]
+            if not isinstance(step, int) or step < 1:
+                raise ValueError("scheduler_step must be a positive integer")
+            if not math.isfinite(gamma) or gamma < 0:
+                raise ValueError("scheduler_gamma must be finite and nonnegative")
+            if not math.isfinite(initial_lr) or initial_lr < 0:
+                raise ValueError("learning_rate must be finite and nonnegative")
+            final_factor = gamma ** ((epochs - 1) // step)
+            phases[phase]["learning_rate"] = {
+                "scheduler": "StepLR",
+                "step_unit": "completed phase epoch",
+                "reset_at_phase_start": True,
+                "initial": initial_lr,
+                "updates_between_decays": step * steps,
+                "final_epoch": initial_lr * final_factor,
+                "after_phase": initial_lr * gamma ** (epochs // step),
+            }
+            if final_factor < 1e-6:
+                schedule_warnings.append(
+                    f"{phase}: final-epoch LR is {initial_lr * final_factor:.6g} "
+                    f"({final_factor:.6g} of initial LR). StepLR decays every "
+                    f"{step * steps} mini-batch updates; verify the intended training horizon."
+                )
     cadence = config.get("runtime", {}).get("validation_every", 1)
     if not isinstance(cadence, int) or cadence < 1:
         raise ValueError("runtime.validation_every must be a positive integer")
@@ -204,6 +231,7 @@ def describe_schedule(config: dict[str, Any]) -> dict[str, Any]:
         "validation_every": cadence,
         "total_updates": sum(p["updates"] for p in phases.values()),
         "recovery_every": 1,
+        "warnings": schedule_warnings,
     }
 
 

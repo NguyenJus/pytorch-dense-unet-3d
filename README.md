@@ -52,6 +52,10 @@ dense-unet-3d train --config config.yaml --wall-seconds 28800 --budget-seconds 2
 Runs the cascaded 2-phase training schedule (Phase A: 100 epochs × 10 steps;
 Phase B: reload best checkpoint, 1000 epochs × 10 steps).
 The CLI prints the schedule and budget before allocating training resources.
+It also reports the StepLR horizon and warns when the configured decay reduces
+the final-epoch rate below one millionth of its starting value. The literal
+paper schedule reaches about `7.9e-33` after Phase B; this is a reproduction
+ambiguity, not evidence that 1000 epochs provide useful optimization.
 Every completed epoch writes an atomic recovery checkpoint independently of best
 validation improvement. SIGINT/SIGTERM request checkpoint-and-stop at an epoch
 boundary; the full remaining epoch/validation/I/O may exceed the wall allocation.
@@ -132,6 +136,10 @@ while retaining the paper-stated encoder hyperparameters:
 This achieves **3,523,643 trainable parameters**, near the paper's reported
 ~3.6 M total. The ±15 % acceptance band (3.06 M–4.14 M) was chosen by this
 repository; it is not a tolerance stated in the paper.
+The paper is internally inconsistent here: its text and Table 1 report **3.6 M**,
+while Table 3 reports **36,270,875 trainable / 36,433,587 total** parameters for
+the DS-Conv model. Matching the smaller count does not establish architectural
+fidelity and does not justify the reduced block counts as a reproduction.
 
 **Why not the paper's (4, 12, 24, 36)?**
 The paper reports block counts (4, 12, 24, 36), growth rate 32, and about
@@ -174,6 +182,12 @@ The local validation set is a practical proxy for tracking training progress.
 The audit corrected spatial-axis handling and mask interpolation during
 preprocessing. Earlier checkpoints are not validated against this corrected
 pipeline; retraining and real-data evaluation are still required.
+The September 30 audit additionally corrects image/mask resize coordinate grids;
+managed checkpoints made with the older grid are refused on exact resume.
+Whole-volume compression to 12 slices can still erase lesions. Phase A currently
+folds tumor into liver, an implementation choice not specified by the paper's
+two-stage training description. These remain barriers to claiming reproduced
+results; see the [training run audit](docs/research/2026-09-30-training-run-audit.md).
 
 ---
 

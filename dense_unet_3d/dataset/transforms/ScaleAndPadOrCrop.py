@@ -41,8 +41,8 @@ class ScaleAndPadOrCrop:
             F.interpolate(
                 img.unsqueeze(0),
                 scale_factor=(1, scale, scale),
-                mode="trilinear" if index == 0 else "nearest",
-                align_corners=True if index == 0 else None,
+                mode="trilinear" if index == 0 else "nearest-exact",
+                align_corners=False if index == 0 else None,
                 recompute_scale_factor=True,
             ).squeeze(0)
             for index, img in enumerate(imgs)
