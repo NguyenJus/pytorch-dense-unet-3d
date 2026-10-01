@@ -1,0 +1,37 @@
+{
+  "python": "3.13.13",
+  "packages": {
+    "torch": "2.13.0",
+    "torchvision": "0.28.0",
+    "numpy": "2.5.3",
+    "nibabel": "5.4.2",
+    "scipy": "1.18.1",
+    "PyYAML": "6.0.3",
+    "pytest": "9.1.1",
+    "ruff": "0.16.8",
+    "mypy": "2.3.1"
+  },
+  "cuda": "13.0",
+  "cudnn": 92000,
+  "gpu": "NVIDIA GeForce RTX 5070 Ti",
+  "compute_capability": [
+    12,
+    0
+  ],
+  "execution": {
+    "precision": "fp32",
+    "tf32": false,
+    "deterministic": false,
+    "activation_checkpointing": false,
+    "compile": false,
+    "accumulation": 1,
+    "microbatch": 1,
+    "cudnn_deterministic": true,
+    "replay_tolerance": {
+      "atol": 1e-06,
+      "rtol": 0.0001,
+      "integer_rng_scheduler": "exact"
+    },
+    "strict_cuda_determinism": "refuted: MaxPool3d backward unsupported"
+  }
+}

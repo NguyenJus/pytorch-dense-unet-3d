@@ -164,3 +164,54 @@ def test_loss_value_numerical_check(base_config: dict) -> None:
         f"Numerical check failed: actual={actual_loss.item():.8f}, "
         f"expected={expected_loss.item():.8f}"
     )
+
+
+@pytest.mark.parametrize("reduction", ["valid_voxel_mean", "weighted_mean"])
+def test_manual_loss_gradient_and_ignored_padding(reduction: str) -> None:
+    """The two denominators differ, and padded logits have zero gradient."""
+    cfg = {"training": {"loss_reduction": reduction}}
+    criterion = get_criterion(cfg).double()
+    logits = torch.zeros(1, 3, 1, 1, 7, dtype=torch.float64, requires_grad=True)
+    target = torch.tensor([[[[0, 0, 1, 2, -100, -100, -100]]]])
+    loss = criterion(logits, target)
+    loss.backward()
+    weights = criterion.weight
+    assert weights is not None
+    denominator = 4.0 if reduction == "valid_voxel_mean" else float(weights[target[..., :4]].sum())
+    expected = (
+        weights[target[..., :4]].sum()
+        * torch.log(torch.tensor(3.0, dtype=torch.float64))
+        / denominator
+    )
+    assert torch.allclose(loss, expected)
+    expected_grad = torch.zeros_like(logits)
+    for i, label in enumerate([0, 0, 1, 2]):
+        expected_grad[0, :, 0, 0, i] = weights[label] / denominator / 3
+        expected_grad[0, label, 0, 0, i] -= weights[label] / denominator
+    assert logits.grad is not None
+    assert torch.allclose(logits.grad, expected_grad)
+    assert logits.grad[0, 2, 0, 0, 3] < 0
+    assert logits.grad[..., 4:].count_nonzero() == 0
+
+
+def test_reductions_have_distinct_gradient_scale() -> None:
+    logits = torch.zeros(1, 3, 1, 1, 4, requires_grad=True)
+    target = torch.tensor([[[[0, 0, 1, 2]]]])
+    voxel = get_criterion({"training": {"loss_reduction": "valid_voxel_mean"}})
+    weighted = get_criterion({"training": {"loss_reduction": "weighted_mean"}})
+    voxel_gradient = torch.autograd.grad(voxel(logits, target), logits, retain_graph=True)[0]
+    weighted_gradient = torch.autograd.grad(weighted(logits, target), logits)[0]
+    assert torch.allclose(voxel_gradient, weighted_gradient * 0.95)
+    assert not torch.allclose(voxel_gradient, weighted_gradient)
+
+
+@pytest.mark.parametrize("reduction", ["valid_voxel_mean", "weighted_mean"])
+def test_all_ignored_batch_rejected(reduction: str) -> None:
+    criterion = get_criterion({"training": {"loss_reduction": reduction}})
+    with pytest.raises(ValueError, match="no valid"):
+        criterion(torch.zeros(1, 3, 1, 1, 2), torch.full((1, 1, 1, 2), -100))
+
+
+def test_unknown_loss_reduction_rejected() -> None:
+    with pytest.raises(ValueError, match="loss_reduction"):
+        get_criterion({"training": {"loss_reduction": "batch_mean"}})

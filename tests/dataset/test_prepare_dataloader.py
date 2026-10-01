@@ -126,6 +126,8 @@ class TestValLoaderDeterministic:
 
         cfg = _config(str(tmp_path))
         cfg["dataset"]["resize_img"] = False
+        cfg["dataset"]["random_hflip"] = False
+        cfg["dataset"]["scale_img"] = False
         phase_a_labels = next(iter(prepare_dataloader(cfg, train=True, detect_tumors=False)))[1]
         phase_b_labels = next(iter(prepare_dataloader(cfg, train=True)))[1]
 

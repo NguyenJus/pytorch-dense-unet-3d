@@ -223,7 +223,7 @@ def test_signals_finish_consistent_boundary(tmp_path, monkeypatch, when):
     model, loader = setup()
     monkeypatch.setattr(
         "dense_unet_3d.evaluation.evaluate.evaluate",
-        lambda *args: {"liver_per_case": 0.5, "tumor_per_case": float("nan")},
+        lambda *args, **kwargs: {"liver_per_case": 0.5, "tumor_per_case": float("nan")},
     )
     with runtime.RunSession(cfg) as session:
         original_event = session.event

@@ -271,3 +271,91 @@ class TestTargetShapeHandling:
 
         assert len(losses) == 1
         assert torch.isfinite(torch.tensor(losses[0]))
+
+
+def test_unpack_dictionary_preserves_tumor_and_masks_padding() -> None:
+    image = torch.ones(1, 1, 1, 1, 3)
+    target = torch.tensor([[[[[0, 2, 1]]]]])
+    valid = torch.tensor([[[[[True, True, False]]]]])
+    _, actual = train_mod.unpack_training_batch(
+        {"image": image, "target": target, "valid_mask": valid}, "cpu"
+    )
+    assert actual.shape == (1, 1, 1, 3)
+    assert actual.flatten().tolist() == [0, 2, -100]
+    assert target.flatten().tolist() == [0, 2, 1]
+
+
+@pytest.mark.parametrize(
+    "target", [torch.tensor([[[[3]]]]), torch.tensor([[[[-1]]]]), torch.tensor([[[[1.2]]]])]
+)
+def test_unpack_rejects_invalid_classes(target: torch.Tensor) -> None:
+    with pytest.raises(ValueError, match="labels"):
+        train_mod.unpack_training_batch((torch.ones(1, 1, 1, 1, 1), target), "cpu")
+
+
+def test_standalone_trains_dictionary_batch_with_padding() -> None:
+    image = torch.ones(1, 1, 1, 1, 2)
+    target = torch.tensor([[[[2, 999]]]])
+    valid = torch.tensor([[[[True, False]]]])
+    model = _TinyModel()
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _base_config(tmp, use_scheduler=False)
+        cfg["training"]["loss_reduction"] = "valid_voxel_mean"
+        losses = train(
+            cfg,
+            model,
+            torch.device("cpu"),
+            [{"image": image, "target": target, "valid_mask": valid}],
+        )
+    assert len(losses) == 1 and torch.isfinite(torch.tensor(losses)).all()
+
+
+def test_sgd_options_are_explicit_and_validated() -> None:
+    cfg = _base_config("unused")
+    cfg["training"].update(
+        optimizer_semantics="pytorch_gradient_buffer",
+        weight_decay=0.03,
+        dampening=0.1,
+        nesterov=False,
+    )
+    optimizer = get_optimizer(_TinyModel(), cfg)
+    assert optimizer.defaults["weight_decay"] == 0.03
+    assert optimizer.defaults["dampening"] == 0.1
+    assert optimizer.defaults["nesterov"] is False
+    cfg["training"]["nesterov"] = True
+    with pytest.raises(ValueError, match="Nesterov"):
+        get_optimizer(_TinyModel(), cfg)
+    cfg["training"]["optimizer_semantics"] = "guessed_keras"
+    with pytest.raises(ValueError, match="optimizer_semantics"):
+        get_optimizer(_TinyModel(), cfg)
+
+
+def test_sgd_lr_decay_differs_from_keras_velocity_equation() -> None:
+    """Constant LR agrees; at a decay boundary the retained moment differs."""
+    parameter = nn.Parameter(torch.tensor([1.0], dtype=torch.float64))
+    cfg = _base_config("unused")
+    cfg["training"]["learning_rate"] = 0.1
+    optimizer = get_optimizer(nn.ParameterList([parameter]), cfg)
+    velocity = 0.0
+    keras_parameter = 1.0
+    for lr in [0.1, 0.1, 0.05]:
+        optimizer.param_groups[0]["lr"] = lr
+        parameter.grad = torch.ones_like(parameter)
+        optimizer.step()
+        velocity = 0.5 * velocity - lr
+        keras_parameter += velocity
+        if lr == 0.1:
+            assert parameter.item() == pytest.approx(keras_parameter)
+    assert parameter.item() == pytest.approx(0.6625)
+    assert keras_parameter == pytest.approx(0.625)
+    assert parameter.item() != pytest.approx(keras_parameter)
+
+
+def test_unmanaged_train_rejects_reconstruction_before_model_activity(tmp_path) -> None:
+    cfg = _base_config(str(tmp_path))
+    cfg["experiment"] = {"kind": "reconstruction", "mode": "reference"}
+    model = _TinyModel()
+    with mock.patch.object(model, "to", side_effect=AssertionError("model touched")):
+        with pytest.raises(ValueError, match="managed run_cascaded_training"):
+            train(cfg, model, torch.device("cpu"), _tiny_loader())
+    assert not (tmp_path / "test_run").exists()

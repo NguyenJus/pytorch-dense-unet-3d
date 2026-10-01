@@ -9,12 +9,13 @@ Bug fixes (§4):
   ``num_batches = 0`` are set before the for-loop so an empty dataloader never
   raises NameError.  An empty loader returns 0.0 for that epoch's loss.
 - Per-epoch logging: train loss + val Dice (per-case + global) via evaluate().
-- Optimizer: SGD momentum=0.5, lr=0.01 (paper values).
+- Optimizer: provisional SGD; paper-stated momentum=0.5 and lr=0.01.
 - Scheduler: StepLR step_size=10, gamma=0.5 (paper values).
 """
 
 from __future__ import annotations
 
+import math
 import os
 import warnings
 from typing import Any
@@ -25,11 +26,11 @@ from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dense_unet_3d.training.loss import get_criterion
+from dense_unet_3d.training.loss import IGNORE_INDEX, get_criterion
 
 
 def get_optimizer(model: nn.Module, config: dict[str, Any]) -> optim.Optimizer:
-    """Return the configured optimiser (SGD momentum=0.5 lr=0.01 per paper).
+    """Return the configured optimiser; SGD is a named reconstruction assumption.
 
     Parameters
     ----------
@@ -42,22 +43,93 @@ def get_optimizer(model: nn.Module, config: dict[str, Any]) -> optim.Optimizer:
     -------
     torch.optim.Optimizer
     """
-    optimizer_name: str = config["training"]["optimizer"]
-    learning_rate: float = config["training"]["learning_rate"]
-
+    training = config["training"]
+    optimizer_name: str = training["optimizer"]
+    learning_rate = float(training["learning_rate"])
+    if not math.isfinite(learning_rate) or learning_rate < 0:
+        raise ValueError("learning_rate must be finite and nonnegative")
+    semantics = training.get("optimizer_semantics", "pytorch_gradient_buffer")
+    if semantics != "pytorch_gradient_buffer":
+        raise ValueError(f"Unsupported optimizer_semantics: {semantics!r}")
     if optimizer_name == "SGD":
-        momentum: float = config["training"]["momentum"]
+        momentum = float(training["momentum"])
+        dampening = float(training.get("dampening", 0.0))
+        weight_decay = float(training.get("weight_decay", 0.0))
+        nesterov = training.get("nesterov", False)
+        if not isinstance(nesterov, bool):
+            raise ValueError("nesterov must be a boolean")
+        for name, value in (
+            ("momentum", momentum),
+            ("dampening", dampening),
+            ("weight_decay", weight_decay),
+        ):
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and nonnegative")
+        if nesterov and (momentum <= 0 or dampening != 0):
+            raise ValueError("Nesterov SGD requires positive momentum and zero dampening")
         return optim.SGD(
             model.parameters(),
             lr=learning_rate,
             momentum=momentum,
+            dampening=dampening,
+            weight_decay=weight_decay,
+            nesterov=nesterov,
         )
     if optimizer_name == "Adam":
-        return optim.Adam(
-            model.parameters(),
-            lr=learning_rate,
-        )
+        return optim.Adam(model.parameters(), lr=learning_rate)
     raise ValueError(f"Unknown optimizer: {optimizer_name!r}")
+
+
+def unpack_training_batch(
+    batch: Any,
+    device: torch.device | str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Normalize tuples or native slab dictionaries and exclude padded targets.
+
+    Dataset metadata remains in the original dictionary. This helper does not
+    remap any valid class label; phase target mapping is a separate decision.
+    """
+    if isinstance(batch, dict):
+        volume, target = batch["image"], batch["target"]
+        valid_mask = batch.get("valid_mask")
+    elif isinstance(batch, (tuple, list)) and len(batch) == 2:
+        volume, target = batch
+        valid_mask = None
+    else:
+        raise ValueError("Training batch must be (image, target) or a slab dictionary")
+    if not isinstance(volume, torch.Tensor) or not isinstance(target, torch.Tensor):
+        raise TypeError("Training image and target must be tensors")
+    volume = volume.to(device, dtype=torch.float32)
+    if target.ndim == 5 and target.shape[1] == 1:
+        target = target.squeeze(1)
+    if (
+        target.ndim != 4
+        or volume.ndim != 5
+        or volume.shape[0] != target.shape[0]
+        or volume.shape[2:] != target.shape[1:]
+    ):
+        raise ValueError("Training image and target must share batch and spatial dimensions")
+    target = target.to(device)
+    if valid_mask is not None:
+        if not isinstance(valid_mask, torch.Tensor) or valid_mask.dtype != torch.bool:
+            raise TypeError("valid_mask must be a boolean tensor")
+        if valid_mask.ndim == 5 and valid_mask.shape[1] == 1:
+            valid_mask = valid_mask.squeeze(1)
+        if valid_mask.shape != target.shape:
+            raise ValueError("valid_mask must match target dimensions")
+        valid_mask = valid_mask.to(device)
+    observed = target if valid_mask is None else target[valid_mask]
+    if observed.is_floating_point() and not torch.equal(observed, observed.round()):
+        raise ValueError("Target labels must be integer class indices")
+    target = target.to(dtype=torch.long)
+    if valid_mask is not None:
+        target = target.masked_fill(~valid_mask, IGNORE_INDEX)
+    valid = target != IGNORE_INDEX
+    if not valid.any():
+        raise ValueError("Training batch contains no valid target voxels")
+    if ((target[valid] < 0) | (target[valid] > 2)).any():
+        raise ValueError("Valid target labels must be 0, 1 or 2")
+    return volume, target
 
 
 def get_scheduler(
@@ -90,6 +162,12 @@ def get_scheduler(
             gamma=gamma,
         )
     raise ValueError(f"Unknown scheduler: {scheduler_name!r}")
+
+
+def reject_unmanaged_reconstruction(config: dict[str, Any]) -> None:
+    experiment = config.get("experiment")
+    if isinstance(experiment, dict) and experiment.get("kind") == "reconstruction":
+        raise ValueError("Reconstruction requires managed run_cascaded_training")
 
 
 def train(
@@ -134,6 +212,7 @@ def train(
         Per-epoch average train loss (length == ``config["training"]["epochs"]``).
         Each entry is 0.0 for an empty loader (documented; NaN-safe).
     """
+    reject_unmanaged_reconstruction(config)
     warnings.warn(
         "The single-phase train() API is unmanaged and non-resumable; use "
         "run_cascaded_training for ownership, recovery and budgets.",
@@ -163,15 +242,8 @@ def train(
         running_loss: float = 0.0
         num_batches: int = 0
 
-        for volume, segmentation in dataloader:
-            volume = volume.to(device, dtype=torch.float32)
-            # Dataset loaders normally include a singleton channel dimension,
-            # but callers may already provide class indices as (N, D, H, W).
-            # Only remove the channel dimension when it actually exists: an
-            # unconditional ``squeeze(1)`` would remove depth for D == 1.
-            if segmentation.dim() == 5:
-                segmentation = segmentation.squeeze(1)
-            segmentation = segmentation.to(device, dtype=torch.long)
+        for batch in dataloader:
+            volume, segmentation = unpack_training_batch(batch, device)
 
             optimizer.zero_grad()
 
@@ -225,8 +297,14 @@ def train(
                 "loss": epoch_loss,
                 "losses": losses,
             }
+            from dense_unet_3d.training.experiment import (
+                checkpoint_model_metadata,
+                experiment_metadata,
+            )
             from dense_unet_3d.training.runtime import atomic_checkpoint
 
+            ckpt.update(checkpoint_model_metadata(model))
+            ckpt.update(experiment_metadata(config))
             atomic_checkpoint(os.path.join(ckpt_dir, f"epoch{epoch}.pt"), ckpt)
 
     return losses

@@ -1,0 +1,2391 @@
+{
+  "claim": "bounded diagnostic reconstruction candidate; not exact paper reconstruction",
+  "status": "failed diagnostic gates",
+  "execution": {
+    "precision": "fp32",
+    "tf32": false,
+    "deterministic": false
+  },
+  "resolved_config": {
+    "pathing": {
+      "run_name": "figure-skip-reconstruction-diagnostic",
+      "model_save_dir": "./models/",
+      "results_save_dir": "./results/",
+      "train_img_dirs": [
+        "/home/justin/projects/pytorch-dense-unet-3d/data/Training_Batch1/media/nas/01_Datasets/CT/LITS/Training Batch 1"
+      ],
+      "test_img_dirs": [
+        "/home/justin/projects/pytorch-dense-unet-3d/models/overnight-20260924/filtered-validation"
+      ]
+    },
+    "dataset": {
+      "batch_size": 1,
+      "resize_img": true,
+      "resize_dims": {
+        "D": 12,
+        "H": 224,
+        "W": 224
+      },
+      "clamp_hu": true,
+      "clamp_hu_range": {
+        "min": -200,
+        "max": 250
+      },
+      "random_hflip": false,
+      "random_hflip_probability": 0.5,
+      "scale_img": false,
+      "scale_img_range": {
+        "min": 0.8,
+        "max": 1.2
+      },
+      "shuffle": true,
+      "sampling": "native_slabs"
+    },
+    "training": {
+      "optimizer": "SGD",
+      "learning_rate": 0.01,
+      "epochs": 50,
+      "phase_a_epochs": 1,
+      "phase_a_steps_per_epoch": 10,
+      "phase_b_epochs": 1,
+      "phase_b_steps_per_epoch": 10,
+      "momentum": 0.5,
+      "use_scheduler": true,
+      "scheduler": "StepLR",
+      "scheduler_step": 10,
+      "scheduler_gamma": 0.5,
+      "criterion": "CrossEntropyLoss",
+      "class_weights": {
+        "background": 0.2,
+        "liver": 1.2,
+        "lesion": 2.2
+      },
+      "phase_a_targets": "three_class",
+      "loss_reduction": "valid_voxel_mean",
+      "step_unit": "minibatch_update",
+      "phase_transfer_policy": "best_weights_fresh_optimizer",
+      "optimizer_semantics": "pytorch_gradient_buffer",
+      "weight_decay": 0.0,
+      "dampening": 0.0,
+      "nesterov": false
+    },
+    "runtime": {
+      "wall_seconds": 900,
+      "budget_seconds": 900,
+      "validation_every": 1,
+      "recovery_every": 1,
+      "heartbeat_seconds": 10,
+      "max_retries": 0,
+      "final_eval_wall_seconds": 300,
+      "final_eval_max_batches": 100
+    },
+    "gpu": {
+      "use_gpu": true,
+      "gpu_name": "cuda:0"
+    },
+    "experiment": {
+      "kind": "reconstruction",
+      "name": "figure_skip_native_slabs_bounded_diagnostic",
+      "mode": "diagnostic",
+      "split_manifest": "docs/research/2026-09-30-split-manifest.json",
+      "open_gates": [
+        "R1",
+        "R2",
+        "R4",
+        "R7",
+        "R8",
+        "R9"
+      ],
+      "max_updates": 20
+    },
+    "model": {
+      "name": "figure_skip_reconstruction_v1",
+      "schema_version": 1,
+      "status": "diagnostic_unresolved",
+      "input_shape": [
+        1,
+        12,
+        224,
+        224
+      ],
+      "block_counts": [
+        4,
+        12,
+        24,
+        36
+      ],
+      "bottlenecks": [
+        128,
+        128,
+        128,
+        32
+      ],
+      "growth": 32,
+      "compression": 0.5,
+      "stem": "conv7_stride2_same_upper_bn_relu",
+      "pool": "max3_stride2_same_upper",
+      "transition": "conv1_bn_relu_conv1_stride122",
+      "dense_order": "conv1_bn_relu_depthwise3_pointwise1_bn_relu",
+      "decoder": "conv3_bn_relu",
+      "decoder_widths": [
+        504,
+        224,
+        192,
+        96,
+        64
+      ],
+      "skips": [
+        "dense_block4",
+        "dense_block3",
+        "dense_block2",
+        "dense_block1",
+        "stem"
+      ],
+      "resize": "both_trilinear_align_corners_false",
+      "batch_norm": {
+        "eps": 0.001,
+        "momentum": 0.01,
+        "running_variance": "unbiased"
+      },
+      "initialization": "glorot_uniform_keras_depthwise_fans_bias_zero",
+      "bias": "all_convolutions",
+      "classifier": "conv1_3_logits"
+    },
+    "execution": {
+      "precision": "fp32",
+      "tf32": false,
+      "deterministic": false
+    }
+  },
+  "updates": 90,
+  "budget": {
+    "max_updates": 90,
+    "max_gpu_wall_seconds": 900
+  },
+  "protocol": {
+    "selection": "first two native slabs in stable train index with >=1% tumor valid voxels",
+    "overfit_max_updates": 80,
+    "material_dice_gain": 0.1,
+    "recipe_changed": false,
+    "no_label_dependent_production_inference": true
+  },
+  "config_sha256": "88e0cb2bbef07e91aef2640238486ccf9d2f169b715b69147b242c7afc81b934",
+  "split_sha256": "0dd1bbc3d65e292ab0c00995ee83c579b6cf11868b7cc2ae6f248ef16e7c5f84",
+  "source_sha256": {
+    "dense_unet_3d/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "dense_unet_3d/cli.py": "d76380d047c3e77b6a5cdf2fe586b4fd8bd7a0f0239f3419cce6c8d148853aba",
+    "dense_unet_3d/dataset/LITSDataset.py": "45f2eea4849d0ff5e1f9f736fd305e8d0c68c062c21511d85eb445b3d6085b33",
+    "dense_unet_3d/dataset/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "dense_unet_3d/dataset/prepare_dataset.py": "49230d337b69930efb5ca2c5ceea77471716342350e968257efaccb36a355e07",
+    "dense_unet_3d/dataset/slabs.py": "a899e505231618017761da040955cde15a804b5fca26ffcdf976c14103781bfc",
+    "dense_unet_3d/dataset/transforms/ClampValues.py": "4caa135b35ecd67620d0a74f10e588eb69e8746e4447e9814c0401f6db55463e",
+    "dense_unet_3d/dataset/transforms/RandomHorizontalFlip.py": "617d24b25eb54f732c7f16ac05287df1aaa17b6c9ee6ed4d07513297733b1024",
+    "dense_unet_3d/dataset/transforms/ReshapeTensor.py": "e8c69fa3cca057ac3828eba1ddcebbbe8520fda8733e279229f01d6eae7b3bbd",
+    "dense_unet_3d/dataset/transforms/Resize.py": "15b0fa772310e6a72939942da530d3cdfb460c061c94758c08abfb2e0923b946",
+    "dense_unet_3d/dataset/transforms/ScaleAndPadOrCrop.py": "6cbfe43a4875378342c35ba92059498f640b8ac8ee1d356cc05c04012a69a9e4",
+    "dense_unet_3d/dataset/transforms/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "dense_unet_3d/evaluation/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "dense_unet_3d/evaluation/dice_score.py": "38d4a2ca0b359c373dc108d2d1f69fd0193cbaa7e5cd65b720ebb054a3b07d66",
+    "dense_unet_3d/evaluation/evaluate.py": "8fd553e1871e8a98ce19261ee3b2edc43edae4a49d7dfd1b55ba3a6ae84c5499",
+    "dense_unet_3d/evaluation/predict.py": "27ee460b09d53ba7f54a0d74190d648c2eb278e1443f21993ac4c88ed62ec073",
+    "dense_unet_3d/main.py": "2ea5dba34a5925a12f01b72701ea031becfe4ef2e5f10caf72aaddf40a7935fd",
+    "dense_unet_3d/model/DenseUNet3d.py": "3e2d9a8277527cb7477a1b4c8a17a0f0fd090ee3571452bbaa424d93e7186295",
+    "dense_unet_3d/model/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "dense_unet_3d/model/building_blocks/DenseBlock.py": "d58c5dafb5c2c29aab5c3bb2c8c7b0db00443dfcac7b6e6dfd44e41f7dfbdfe4",
+    "dense_unet_3d/model/building_blocks/TransitionBlock.py": "473c6b8fd18b251a482cb0e7564151658ff5693464927feac5a76247300faf5e",
+    "dense_unet_3d/model/building_blocks/UpsamplingBlock.py": "925c68515b161c76747fb7c036b169ae8d454968ad0ccda39480bf58e393a722",
+    "dense_unet_3d/model/building_blocks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "dense_unet_3d/model/building_blocks/dense_layer.py": "357b68a09f1fdaed6b2b1b5a522873e29dcb8cd6e6e131fdc2f3396d7358664b",
+    "dense_unet_3d/model/building_blocks/ds_conv.py": "91e67794350fb03b73c6cc724a29c04f6f88e55e47ad8bf32171c4368a7b29d8",
+    "dense_unet_3d/model/config.py": "b9edcc678373db57c21416c71a180bc50420dc93197758cbcb6617ee3ac1fd3b",
+    "dense_unet_3d/model/reconstruction.py": "86e00e8faa45931d2dbde08fcc4de13a9c607c6953d8ae586bb0111867326dfa",
+    "dense_unet_3d/training/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "dense_unet_3d/training/cascaded_driver.py": "8c2e103602b620dfab2953d20a3051d651de99e2a7a5fe3c64763ebb8f940ef7",
+    "dense_unet_3d/training/experiment.py": "b2b1890c399513b98076c7d97972b3fe2a8dc244d6b72fd3f1e6dcaefc4593fa",
+    "dense_unet_3d/training/loss.py": "6e494d5478485ab9d2231adde130c85478ad9d8238cfc5510c98a37804d66712",
+    "dense_unet_3d/training/recovery.py": "130a3c0363ddd0b147daaed991be8bc3ad44322e174795100b1c0600bb7d7cfe",
+    "dense_unet_3d/training/runtime.py": "ca87be071b64ad8bfd9f3e4ba91ede763a1e440cb6dce711b6403a4f3e60a270",
+    "dense_unet_3d/training/train.py": "eeb910bf48dfe02a17e1c329e791adf9f48c627a96f33eb500f9c67d289b20e5"
+  },
+  "script_sha256": "3e226f1de4d9d315e4d1923ac3cabc23d0b77655c5baff80ec123df0edd6807a",
+  "torch": "2.13.0+cu130",
+  "cuda": "13.0",
+  "gpu_info": "NVIDIA GeForce RTX 5070 Ti, 610.74, 16303 MiB, 964 MiB",
+  "profile": [
+    {
+      "kind": "cold",
+      "stages": {
+        "forward": {
+          "allocated_bytes": 1710939136,
+          "reserved_bytes": 2541748224,
+          "peak_allocated_bytes": 2315074560,
+          "peak_reserved_bytes": 2541748224,
+          "device_used_bytes": 3950575616,
+          "device_total_bytes": 17094475776,
+          "seconds": 0.39977956500661094
+        },
+        "backward": {
+          "allocated_bytes": 533372928,
+          "reserved_bytes": 3007315968,
+          "peak_allocated_bytes": 2013495808,
+          "peak_reserved_bytes": 3007315968,
+          "device_used_bytes": 4418240512,
+          "device_total_bytes": 17094475776,
+          "seconds": 0.4987044509907719
+        },
+        "momentum_update": {
+          "allocated_bytes": 792772096,
+          "reserved_bytes": 3007315968,
+          "peak_allocated_bytes": 792772096,
+          "peak_reserved_bytes": 3007315968,
+          "device_used_bytes": 4418240512,
+          "device_total_bytes": 17094475776,
+          "seconds": 0.05468846400617622
+        }
+      },
+      "loss": 0.6880496740341187,
+      "finite_parameters_and_gradients": true,
+      "bn_layers": 161,
+      "bn_updates_per_forward": 1
+    },
+    {
+      "kind": "warm",
+      "stages": {
+        "forward": {
+          "allocated_bytes": 1968364544,
+          "reserved_bytes": 3028287488,
+          "peak_allocated_bytes": 2573548544,
+          "peak_reserved_bytes": 3028287488,
+          "device_used_bytes": 4439212032,
+          "device_total_bytes": 17094475776,
+          "seconds": 0.14651735400548205
+        },
+        "backward": {
+          "allocated_bytes": 794008576,
+          "reserved_bytes": 3028287488,
+          "peak_allocated_bytes": 2271221760,
+          "peak_reserved_bytes": 3028287488,
+          "device_used_bytes": 4439212032,
+          "device_total_bytes": 17094475776,
+          "seconds": 0.4417429320019437
+        },
+        "momentum_update": {
+          "allocated_bytes": 794008576,
+          "reserved_bytes": 3028287488,
+          "peak_allocated_bytes": 794008576,
+          "peak_reserved_bytes": 3028287488,
+          "device_used_bytes": 4439212032,
+          "device_total_bytes": 17094475776,
+          "seconds": 0.017931982001755387
+        }
+      },
+      "loss": 0.42522579431533813,
+      "finite_parameters_and_gradients": true,
+      "bn_layers": 161,
+      "bn_updates_per_forward": 1
+    }
+  ],
+  "resume": {
+    "state_comparison": {
+      "model_state_dict": {
+        "passed": false,
+        "max_abs": 284.54827880859375,
+        "max_relative": 3075.1460621236693,
+        "difference_l2": 401.5201396671623,
+        "floating_elements": 64613219,
+        "exact_nonfloating": true
+      },
+      "optimizer_state_dict": {
+        "passed": false,
+        "max_abs": 0.5867769718170166,
+        "max_relative": 40826.12320780754,
+        "difference_l2": 20.834554032479133,
+        "floating_elements": 64591723,
+        "exact_nonfloating": true
+      },
+      "scheduler_state_dict": {
+        "passed": true,
+        "max_abs": 0.0,
+        "max_relative": 0.0,
+        "difference_l2": 0.0,
+        "floating_elements": 0,
+        "exact_nonfloating": true
+      },
+      "rng": {
+        "passed": true,
+        "max_abs": 0.0,
+        "max_relative": 0.0,
+        "difference_l2": 0.0,
+        "floating_elements": 0,
+        "exact_nonfloating": true
+      },
+      "history": {
+        "passed": false,
+        "max_abs": 0.0022959113121032715,
+        "max_relative": 0.00581290260196395,
+        "difference_l2": 0.0022959113215811513,
+        "floating_elements": 0,
+        "exact_nonfloating": true
+      },
+      "best": {
+        "passed": false,
+        "max_abs": 284.54827880859375,
+        "max_relative": 40826.12320780754,
+        "difference_l2": 402.06036996555963,
+        "floating_elements": 258409884,
+        "exact_nonfloating": true
+      },
+      "global_step": {
+        "passed": true,
+        "max_abs": 0.0,
+        "max_relative": 0.0,
+        "difference_l2": 0.0,
+        "floating_elements": 0,
+        "exact_nonfloating": true
+      },
+      "phase_b_loaded_phase_a_state_dict": {
+        "passed": false,
+        "max_abs": 0.00140380859375,
+        "max_relative": 14.329578569737373,
+        "difference_l2": 0.002638937174052572,
+        "floating_elements": 64613219,
+        "exact_nonfloating": true
+      }
+    },
+    "repeated_steps": [
+      {
+        "outputs": {
+          "passed": true,
+          "max_abs": 0.0,
+          "max_relative": 0.0,
+          "difference_l2": 0.0,
+          "floating_elements": 1806336,
+          "exact_nonfloating": true
+        },
+        "loss": {
+          "passed": true,
+          "max_abs": 0.0,
+          "max_relative": 0.0,
+          "difference_l2": 0.0,
+          "floating_elements": 0,
+          "exact_nonfloating": true
+        },
+        "gradients": {
+          "passed": true,
+          "max_abs": 1.430511474609375e-06,
+          "max_relative": 0.16391277313232422,
+          "difference_l2": 3.973597043896693e-05,
+          "floating_elements": 64591723,
+          "exact_nonfloating": true
+        }
+      },
+      {
+        "outputs": {
+          "passed": false,
+          "max_abs": 9.226799011230469e-05,
+          "max_relative": 20.089591988920848,
+          "difference_l2": 0.01707891514619019,
+          "floating_elements": 1806336,
+          "exact_nonfloating": true
+        },
+        "loss": {
+          "passed": true,
+          "max_abs": 4.172325134277344e-07,
+          "max_relative": 9.934618854089969e-07,
+          "difference_l2": 4.172325134277344e-07,
+          "floating_elements": 0,
+          "exact_nonfloating": true
+        },
+        "gradients": {
+          "passed": false,
+          "max_abs": 0.010480821132659912,
+          "max_relative": 191.56034482758622,
+          "difference_l2": 0.1996975221201988,
+          "floating_elements": 64591723,
+          "exact_nonfloating": true
+        }
+      },
+      {
+        "outputs": {
+          "passed": false,
+          "max_abs": 0.8355280160903931,
+          "max_relative": 30515.321168508523,
+          "difference_l2": 141.81563786283388,
+          "floating_elements": 1806336,
+          "exact_nonfloating": true
+        },
+        "loss": {
+          "passed": false,
+          "max_abs": 0.003941625356674194,
+          "max_relative": 0.009339584815383979,
+          "difference_l2": 0.003941625356674194,
+          "floating_elements": 0,
+          "exact_nonfloating": true
+        },
+        "gradients": {
+          "passed": false,
+          "max_abs": 1.067474365234375,
+          "max_relative": 33118.583261966705,
+          "difference_l2": 19.044748999083186,
+          "floating_elements": 64591723,
+          "exact_nonfloating": true
+        }
+      },
+      {
+        "outputs": {
+          "passed": false,
+          "max_abs": 3.1823551654815674,
+          "max_relative": 147154.02709439688,
+          "difference_l2": 675.8259637162474,
+          "floating_elements": 1806336,
+          "exact_nonfloating": true
+        },
+        "loss": {
+          "passed": false,
+          "max_abs": 0.0006501972675323486,
+          "max_relative": 0.0017673112785436325,
+          "difference_l2": 0.0006501972675323486,
+          "floating_elements": 0,
+          "exact_nonfloating": true
+        },
+        "gradients": {
+          "passed": false,
+          "max_abs": 0.6060376167297363,
+          "max_relative": 78683.0695630246,
+          "difference_l2": 18.704719811649216,
+          "floating_elements": 64591723,
+          "exact_nonfloating": true
+        }
+      }
+    ],
+    "tolerance": {
+      "atol": 1e-06,
+      "rtol": 0.0001
+    },
+    "passed": false
+  },
+  "previous_attempts": [
+    {
+      "status": "failed",
+      "updates": 0,
+      "cumulative_gpu_wall_seconds": 1.4668037750088843,
+      "error": "nll_loss2d_forward_out_cuda_template does not have a deterministic implementation, but you set 'torch.use_deterministic_algorithms(True)'. You can turn off determinism just for this operation, or you can use the 'warn_only=True' option, if that's acceptable for your application. You can also file an issue at https://github.com/pytorch/pytorch/issues to help us prioritize adding deterministic support for this operation.",
+      "source_sha256": {
+        "dense_unet_3d/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/cli.py": "0c043153827bbe65c33d86e4f7409b8919d5a920350bc6523c19071dbd2f0e6e",
+        "dense_unet_3d/dataset/LITSDataset.py": "45f2eea4849d0ff5e1f9f736fd305e8d0c68c062c21511d85eb445b3d6085b33",
+        "dense_unet_3d/dataset/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/dataset/prepare_dataset.py": "49230d337b69930efb5ca2c5ceea77471716342350e968257efaccb36a355e07",
+        "dense_unet_3d/dataset/slabs.py": "a899e505231618017761da040955cde15a804b5fca26ffcdf976c14103781bfc",
+        "dense_unet_3d/dataset/transforms/ClampValues.py": "4caa135b35ecd67620d0a74f10e588eb69e8746e4447e9814c0401f6db55463e",
+        "dense_unet_3d/dataset/transforms/RandomHorizontalFlip.py": "617d24b25eb54f732c7f16ac05287df1aaa17b6c9ee6ed4d07513297733b1024",
+        "dense_unet_3d/dataset/transforms/ReshapeTensor.py": "e8c69fa3cca057ac3828eba1ddcebbbe8520fda8733e279229f01d6eae7b3bbd",
+        "dense_unet_3d/dataset/transforms/Resize.py": "15b0fa772310e6a72939942da530d3cdfb460c061c94758c08abfb2e0923b946",
+        "dense_unet_3d/dataset/transforms/ScaleAndPadOrCrop.py": "6cbfe43a4875378342c35ba92059498f640b8ac8ee1d356cc05c04012a69a9e4",
+        "dense_unet_3d/dataset/transforms/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/evaluation/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/evaluation/dice_score.py": "38d4a2ca0b359c373dc108d2d1f69fd0193cbaa7e5cd65b720ebb054a3b07d66",
+        "dense_unet_3d/evaluation/evaluate.py": "8fd553e1871e8a98ce19261ee3b2edc43edae4a49d7dfd1b55ba3a6ae84c5499",
+        "dense_unet_3d/evaluation/predict.py": "27ee460b09d53ba7f54a0d74190d648c2eb278e1443f21993ac4c88ed62ec073",
+        "dense_unet_3d/main.py": "2ea5dba34a5925a12f01b72701ea031becfe4ef2e5f10caf72aaddf40a7935fd",
+        "dense_unet_3d/model/DenseUNet3d.py": "3e2d9a8277527cb7477a1b4c8a17a0f0fd090ee3571452bbaa424d93e7186295",
+        "dense_unet_3d/model/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/model/building_blocks/DenseBlock.py": "d58c5dafb5c2c29aab5c3bb2c8c7b0db00443dfcac7b6e6dfd44e41f7dfbdfe4",
+        "dense_unet_3d/model/building_blocks/TransitionBlock.py": "473c6b8fd18b251a482cb0e7564151658ff5693464927feac5a76247300faf5e",
+        "dense_unet_3d/model/building_blocks/UpsamplingBlock.py": "925c68515b161c76747fb7c036b169ae8d454968ad0ccda39480bf58e393a722",
+        "dense_unet_3d/model/building_blocks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/model/building_blocks/dense_layer.py": "357b68a09f1fdaed6b2b1b5a522873e29dcb8cd6e6e131fdc2f3396d7358664b",
+        "dense_unet_3d/model/building_blocks/ds_conv.py": "91e67794350fb03b73c6cc724a29c04f6f88e55e47ad8bf32171c4368a7b29d8",
+        "dense_unet_3d/model/config.py": "b9edcc678373db57c21416c71a180bc50420dc93197758cbcb6617ee3ac1fd3b",
+        "dense_unet_3d/model/reconstruction.py": "86e00e8faa45931d2dbde08fcc4de13a9c607c6953d8ae586bb0111867326dfa",
+        "dense_unet_3d/training/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/training/cascaded_driver.py": "8c2e103602b620dfab2953d20a3051d651de99e2a7a5fe3c64763ebb8f940ef7",
+        "dense_unet_3d/training/experiment.py": "15148422eb6460e6e2bff56be6b607da815cf1123afa4770253ff846cb30537e",
+        "dense_unet_3d/training/loss.py": "6422ac3ccc996060d9c195c0ca51721f7f2128ee466d1130ad6990d058662f14",
+        "dense_unet_3d/training/recovery.py": "a946b621add902f1086c3cd9ff54e3435c675adc72e99884851ca370470455a2",
+        "dense_unet_3d/training/runtime.py": "ca87be071b64ad8bfd9f3e4ba91ede763a1e440cb6dce711b6403a4f3e60a270",
+        "dense_unet_3d/training/train.py": "eeb910bf48dfe02a17e1c329e791adf9f48c627a96f33eb500f9c67d289b20e5"
+      },
+      "script_sha256": "21d5bb5b981616d2beba4aa25ea55ba285df102182c97b4f5551aa0d40e64f1b"
+    },
+    {
+      "status": "failed",
+      "updates": 0,
+      "cumulative_gpu_wall_seconds": 3.7870443840074586,
+      "error": "max_pool3d_with_indices_backward_cuda does not have a deterministic implementation, but you set 'torch.use_deterministic_algorithms(True)'. You can turn off determinism just for this operation, or you can use the 'warn_only=True' option, if that's acceptable for your application. You can also file an issue at https://github.com/pytorch/pytorch/issues to help us prioritize adding deterministic support for this operation.",
+      "source_sha256": {
+        "dense_unet_3d/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/cli.py": "0c043153827bbe65c33d86e4f7409b8919d5a920350bc6523c19071dbd2f0e6e",
+        "dense_unet_3d/dataset/LITSDataset.py": "45f2eea4849d0ff5e1f9f736fd305e8d0c68c062c21511d85eb445b3d6085b33",
+        "dense_unet_3d/dataset/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/dataset/prepare_dataset.py": "49230d337b69930efb5ca2c5ceea77471716342350e968257efaccb36a355e07",
+        "dense_unet_3d/dataset/slabs.py": "a899e505231618017761da040955cde15a804b5fca26ffcdf976c14103781bfc",
+        "dense_unet_3d/dataset/transforms/ClampValues.py": "4caa135b35ecd67620d0a74f10e588eb69e8746e4447e9814c0401f6db55463e",
+        "dense_unet_3d/dataset/transforms/RandomHorizontalFlip.py": "617d24b25eb54f732c7f16ac05287df1aaa17b6c9ee6ed4d07513297733b1024",
+        "dense_unet_3d/dataset/transforms/ReshapeTensor.py": "e8c69fa3cca057ac3828eba1ddcebbbe8520fda8733e279229f01d6eae7b3bbd",
+        "dense_unet_3d/dataset/transforms/Resize.py": "15b0fa772310e6a72939942da530d3cdfb460c061c94758c08abfb2e0923b946",
+        "dense_unet_3d/dataset/transforms/ScaleAndPadOrCrop.py": "6cbfe43a4875378342c35ba92059498f640b8ac8ee1d356cc05c04012a69a9e4",
+        "dense_unet_3d/dataset/transforms/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/evaluation/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/evaluation/dice_score.py": "38d4a2ca0b359c373dc108d2d1f69fd0193cbaa7e5cd65b720ebb054a3b07d66",
+        "dense_unet_3d/evaluation/evaluate.py": "8fd553e1871e8a98ce19261ee3b2edc43edae4a49d7dfd1b55ba3a6ae84c5499",
+        "dense_unet_3d/evaluation/predict.py": "27ee460b09d53ba7f54a0d74190d648c2eb278e1443f21993ac4c88ed62ec073",
+        "dense_unet_3d/main.py": "2ea5dba34a5925a12f01b72701ea031becfe4ef2e5f10caf72aaddf40a7935fd",
+        "dense_unet_3d/model/DenseUNet3d.py": "3e2d9a8277527cb7477a1b4c8a17a0f0fd090ee3571452bbaa424d93e7186295",
+        "dense_unet_3d/model/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/model/building_blocks/DenseBlock.py": "d58c5dafb5c2c29aab5c3bb2c8c7b0db00443dfcac7b6e6dfd44e41f7dfbdfe4",
+        "dense_unet_3d/model/building_blocks/TransitionBlock.py": "473c6b8fd18b251a482cb0e7564151658ff5693464927feac5a76247300faf5e",
+        "dense_unet_3d/model/building_blocks/UpsamplingBlock.py": "925c68515b161c76747fb7c036b169ae8d454968ad0ccda39480bf58e393a722",
+        "dense_unet_3d/model/building_blocks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/model/building_blocks/dense_layer.py": "357b68a09f1fdaed6b2b1b5a522873e29dcb8cd6e6e131fdc2f3396d7358664b",
+        "dense_unet_3d/model/building_blocks/ds_conv.py": "91e67794350fb03b73c6cc724a29c04f6f88e55e47ad8bf32171c4368a7b29d8",
+        "dense_unet_3d/model/config.py": "b9edcc678373db57c21416c71a180bc50420dc93197758cbcb6617ee3ac1fd3b",
+        "dense_unet_3d/model/reconstruction.py": "86e00e8faa45931d2dbde08fcc4de13a9c607c6953d8ae586bb0111867326dfa",
+        "dense_unet_3d/training/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/training/cascaded_driver.py": "8c2e103602b620dfab2953d20a3051d651de99e2a7a5fe3c64763ebb8f940ef7",
+        "dense_unet_3d/training/experiment.py": "15148422eb6460e6e2bff56be6b607da815cf1123afa4770253ff846cb30537e",
+        "dense_unet_3d/training/loss.py": "6e494d5478485ab9d2231adde130c85478ad9d8238cfc5510c98a37804d66712",
+        "dense_unet_3d/training/recovery.py": "4c1c83eec0e70cd7e82dcd655b4819c9887d049e8df8b359229e5942ca4fa504",
+        "dense_unet_3d/training/runtime.py": "ca87be071b64ad8bfd9f3e4ba91ede763a1e440cb6dce711b6403a4f3e60a270",
+        "dense_unet_3d/training/train.py": "eeb910bf48dfe02a17e1c329e791adf9f48c627a96f33eb500f9c67d289b20e5"
+      },
+      "script_sha256": "2158a0126e52298257b7f41ff798684d412c8a667525386ed395c78350ab0a42"
+    },
+    {
+      "status": "failed",
+      "updates": 10,
+      "cumulative_gpu_wall_seconds": 112.99641035300738,
+      "error": "Stop/resume or repeated-step numerical tolerance failed",
+      "source_sha256": {
+        "dense_unet_3d/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/cli.py": "d76380d047c3e77b6a5cdf2fe586b4fd8bd7a0f0239f3419cce6c8d148853aba",
+        "dense_unet_3d/dataset/LITSDataset.py": "45f2eea4849d0ff5e1f9f736fd305e8d0c68c062c21511d85eb445b3d6085b33",
+        "dense_unet_3d/dataset/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/dataset/prepare_dataset.py": "49230d337b69930efb5ca2c5ceea77471716342350e968257efaccb36a355e07",
+        "dense_unet_3d/dataset/slabs.py": "a899e505231618017761da040955cde15a804b5fca26ffcdf976c14103781bfc",
+        "dense_unet_3d/dataset/transforms/ClampValues.py": "4caa135b35ecd67620d0a74f10e588eb69e8746e4447e9814c0401f6db55463e",
+        "dense_unet_3d/dataset/transforms/RandomHorizontalFlip.py": "617d24b25eb54f732c7f16ac05287df1aaa17b6c9ee6ed4d07513297733b1024",
+        "dense_unet_3d/dataset/transforms/ReshapeTensor.py": "e8c69fa3cca057ac3828eba1ddcebbbe8520fda8733e279229f01d6eae7b3bbd",
+        "dense_unet_3d/dataset/transforms/Resize.py": "15b0fa772310e6a72939942da530d3cdfb460c061c94758c08abfb2e0923b946",
+        "dense_unet_3d/dataset/transforms/ScaleAndPadOrCrop.py": "6cbfe43a4875378342c35ba92059498f640b8ac8ee1d356cc05c04012a69a9e4",
+        "dense_unet_3d/dataset/transforms/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/evaluation/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/evaluation/dice_score.py": "38d4a2ca0b359c373dc108d2d1f69fd0193cbaa7e5cd65b720ebb054a3b07d66",
+        "dense_unet_3d/evaluation/evaluate.py": "8fd553e1871e8a98ce19261ee3b2edc43edae4a49d7dfd1b55ba3a6ae84c5499",
+        "dense_unet_3d/evaluation/predict.py": "27ee460b09d53ba7f54a0d74190d648c2eb278e1443f21993ac4c88ed62ec073",
+        "dense_unet_3d/main.py": "2ea5dba34a5925a12f01b72701ea031becfe4ef2e5f10caf72aaddf40a7935fd",
+        "dense_unet_3d/model/DenseUNet3d.py": "3e2d9a8277527cb7477a1b4c8a17a0f0fd090ee3571452bbaa424d93e7186295",
+        "dense_unet_3d/model/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/model/building_blocks/DenseBlock.py": "d58c5dafb5c2c29aab5c3bb2c8c7b0db00443dfcac7b6e6dfd44e41f7dfbdfe4",
+        "dense_unet_3d/model/building_blocks/TransitionBlock.py": "473c6b8fd18b251a482cb0e7564151658ff5693464927feac5a76247300faf5e",
+        "dense_unet_3d/model/building_blocks/UpsamplingBlock.py": "925c68515b161c76747fb7c036b169ae8d454968ad0ccda39480bf58e393a722",
+        "dense_unet_3d/model/building_blocks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/model/building_blocks/dense_layer.py": "357b68a09f1fdaed6b2b1b5a522873e29dcb8cd6e6e131fdc2f3396d7358664b",
+        "dense_unet_3d/model/building_blocks/ds_conv.py": "91e67794350fb03b73c6cc724a29c04f6f88e55e47ad8bf32171c4368a7b29d8",
+        "dense_unet_3d/model/config.py": "b9edcc678373db57c21416c71a180bc50420dc93197758cbcb6617ee3ac1fd3b",
+        "dense_unet_3d/model/reconstruction.py": "86e00e8faa45931d2dbde08fcc4de13a9c607c6953d8ae586bb0111867326dfa",
+        "dense_unet_3d/training/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "dense_unet_3d/training/cascaded_driver.py": "8c2e103602b620dfab2953d20a3051d651de99e2a7a5fe3c64763ebb8f940ef7",
+        "dense_unet_3d/training/experiment.py": "b2b1890c399513b98076c7d97972b3fe2a8dc244d6b72fd3f1e6dcaefc4593fa",
+        "dense_unet_3d/training/loss.py": "6e494d5478485ab9d2231adde130c85478ad9d8238cfc5510c98a37804d66712",
+        "dense_unet_3d/training/recovery.py": "130a3c0363ddd0b147daaed991be8bc3ad44322e174795100b1c0600bb7d7cfe",
+        "dense_unet_3d/training/runtime.py": "ca87be071b64ad8bfd9f3e4ba91ede763a1e440cb6dce711b6403a4f3e60a270",
+        "dense_unet_3d/training/train.py": "eeb910bf48dfe02a17e1c329e791adf9f48c627a96f33eb500f9c67d289b20e5"
+      },
+      "script_sha256": "f7e14094024fc4b4e2788675f5c23aa771058871f5a8dcbcdb5ccbbc071d59d9"
+    }
+  ],
+  "selected_samples": [
+    {
+      "dataset_index": 318,
+      "case_id": "-16",
+      "split": "train",
+      "source_image": "/home/justin/projects/pytorch-dense-unet-3d/data/Training_Batch1/media/nas/01_Datasets/CT/LITS/Training Batch 1/volume-16.nii",
+      "source_target": "/home/justin/projects/pytorch-dense-unet-3d/data/Training_Batch1/media/nas/01_Datasets/CT/LITS/Training Batch 1/segmentation-16.nii",
+      "source_image_sha256": "e82a6d34eb0616aa4f9c40a04237adb02ecc7f14b3f280def858d7756c8d294f",
+      "source_target_sha256": "c7d8e4c12a29adbf2f19dede1b2e5832bca3d0e6977ab76c44033f0e4b26273c",
+      "source_shape_hwd": [
+        512,
+        512,
+        689
+      ],
+      "native_depth_bounds": [
+        396,
+        408
+      ],
+      "class_voxel_counts": [
+        521416,
+        68261,
+        12435
+      ],
+      "valid_voxels": 602112,
+      "tumor_fraction": 0.02065230389030612
+    },
+    {
+      "dataset_index": 319,
+      "case_id": "-16",
+      "split": "train",
+      "source_image": "/home/justin/projects/pytorch-dense-unet-3d/data/Training_Batch1/media/nas/01_Datasets/CT/LITS/Training Batch 1/volume-16.nii",
+      "source_target": "/home/justin/projects/pytorch-dense-unet-3d/data/Training_Batch1/media/nas/01_Datasets/CT/LITS/Training Batch 1/segmentation-16.nii",
+      "source_image_sha256": "e82a6d34eb0616aa4f9c40a04237adb02ecc7f14b3f280def858d7756c8d294f",
+      "source_target_sha256": "c7d8e4c12a29adbf2f19dede1b2e5832bca3d0e6977ab76c44033f0e4b26273c",
+      "source_shape_hwd": [
+        512,
+        512,
+        689
+      ],
+      "native_depth_bounds": [
+        408,
+        420
+      ],
+      "class_voxel_counts": [
+        522080,
+        62689,
+        17343
+      ],
+      "valid_voxels": 602112,
+      "tumor_fraction": 0.028803611288265307
+    }
+  ],
+  "validation_sample": {
+    "case_id": "-100",
+    "dataset_index": 0,
+    "start": 0,
+    "scope": "one held-out slab eval smoke only"
+  },
+  "model": {
+    "model_config": {
+      "name": "figure_skip_reconstruction_v1",
+      "schema_version": 1,
+      "status": "diagnostic_unresolved",
+      "input_shape": [
+        1,
+        12,
+        224,
+        224
+      ],
+      "block_counts": [
+        4,
+        12,
+        24,
+        36
+      ],
+      "bottlenecks": [
+        128,
+        128,
+        128,
+        32
+      ],
+      "growth": 32,
+      "compression": 0.5,
+      "stem": "conv7_stride2_same_upper_bn_relu",
+      "pool": "max3_stride2_same_upper",
+      "transition": "conv1_bn_relu_conv1_stride122",
+      "dense_order": "conv1_bn_relu_depthwise3_pointwise1_bn_relu",
+      "decoder": "conv3_bn_relu",
+      "decoder_widths": [
+        504,
+        224,
+        192,
+        96,
+        64
+      ],
+      "skips": [
+        "dense_block4",
+        "dense_block3",
+        "dense_block2",
+        "dense_block1",
+        "stem"
+      ],
+      "resize": "both_trilinear_align_corners_false",
+      "batch_norm": {
+        "eps": 0.001,
+        "momentum": 0.01,
+        "running_variance": "unbiased"
+      },
+      "initialization": "glorot_uniform_keras_depthwise_fans_bias_zero",
+      "bias": "all_convolutions",
+      "classifier": "conv1_3_logits"
+    },
+    "model_fingerprint": "8545f5b2e8dbfe1c448909e86a07e5aa09e7f6bf9a25a9b418867a5d72120cef",
+    "parameters": 64591723
+  },
+  "gpu_wall_seconds": 301.52462378201017,
+  "overfit": {
+    "before": {
+      "samples": [
+        {
+          "loss": 6.143447399139404,
+          "predicted_class_counts": [
+            89842,
+            21200,
+            491070
+          ],
+          "tumor_voxels": 12435,
+          "tumor_overlap_voxels": 4373,
+          "tumor_dice": 0.017370234655067974,
+          "finite_logits": true
+        },
+        {
+          "loss": 5.943588733673096,
+          "predicted_class_counts": [
+            88640,
+            21142,
+            492330
+          ],
+          "tumor_voxels": 17343,
+          "tumor_overlap_voxels": 6507,
+          "tumor_dice": 0.02553401887092312,
+          "finite_logits": true
+        }
+      ],
+      "mean_loss": 6.04351806640625,
+      "mean_tumor_dice": 0.021452126762995547,
+      "bn_preserved": true,
+      "all_finite": true
+    },
+    "steps": [
+      {
+        "step": 1,
+        "sample": 0,
+        "loss": 0.6880496740341187,
+        "predicted_class_counts": [
+          177372,
+          97551,
+          327189
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 3593,
+        "tumor_dice": 0.021158693143005204,
+        "finite_logits": true,
+        "gradient_l2": 35.29887008666992,
+        "actual_update_l2": 0.35298871994018555,
+        "seconds": 3.2741229429957457,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 2,
+        "sample": 1,
+        "loss": 0.4199785590171814,
+        "predicted_class_counts": [
+          284624,
+          48310,
+          269178
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 13301,
+        "tumor_dice": 0.09284485255880023,
+        "finite_logits": true,
+        "gradient_l2": 29.761611938476562,
+        "actual_update_l2": 0.3448124825954437,
+        "seconds": 2.0143114759994205,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 3,
+        "sample": 0,
+        "loss": 0.42093974351882935,
+        "predicted_class_counts": [
+          151903,
+          176700,
+          273509
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 29,
+        "tumor_dice": 0.0002028369191170299,
+        "finite_logits": true,
+        "gradient_l2": 15.101290702819824,
+        "actual_update_l2": 0.227130725979805,
+        "seconds": 1.8376271330052987,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 4,
+        "sample": 1,
+        "loss": 0.3510158360004425,
+        "predicted_class_counts": [
+          276728,
+          156984,
+          168400
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 1743,
+        "tumor_dice": 0.018767867429728174,
+        "finite_logits": true,
+        "gradient_l2": 11.288717269897461,
+        "actual_update_l2": 0.16299550235271454,
+        "seconds": 2.4806777410121867,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 5,
+        "sample": 0,
+        "loss": 0.29996880888938904,
+        "predicted_class_counts": [
+          372491,
+          103649,
+          125972
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 7537,
+        "tumor_dice": 0.10891067648312586,
+        "finite_logits": true,
+        "gradient_l2": 7.0357489585876465,
+        "actual_update_l2": 0.10397467762231827,
+        "seconds": 2.410439575003693,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 6,
+        "sample": 1,
+        "loss": 0.2799922525882721,
+        "predicted_class_counts": [
+          382913,
+          147837,
+          71362
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 3643,
+        "tumor_dice": 0.08213742179133082,
+        "finite_logits": true,
+        "gradient_l2": 5.728495121002197,
+        "actual_update_l2": 0.07527000457048416,
+        "seconds": 1.7453608859941596,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 7,
+        "sample": 0,
+        "loss": 0.2444515824317932,
+        "predicted_class_counts": [
+          390560,
+          149821,
+          61731
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 4572,
+        "tumor_dice": 0.12329099587412022,
+        "finite_logits": true,
+        "gradient_l2": 3.6646511554718018,
+        "actual_update_l2": 0.05545033887028694,
+        "seconds": 2.1175039890076732,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 8,
+        "sample": 1,
+        "loss": 0.24563801288604736,
+        "predicted_class_counts": [
+          410223,
+          140468,
+          51421
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 9532,
+        "tumor_dice": 0.2772380896980978,
+        "finite_logits": true,
+        "gradient_l2": 5.066464900970459,
+        "actual_update_l2": 0.059970952570438385,
+        "seconds": 2.418460983011755,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 9,
+        "sample": 0,
+        "loss": 0.2250661551952362,
+        "predicted_class_counts": [
+          410675,
+          130939,
+          60498
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 6032,
+        "tumor_dice": 0.1654120905488599,
+        "finite_logits": true,
+        "gradient_l2": 4.499033451080322,
+        "actual_update_l2": 0.05526353046298027,
+        "seconds": 2.280232409000746,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 10,
+        "sample": 1,
+        "loss": 0.2212831676006317,
+        "predicted_class_counts": [
+          417373,
+          130322,
+          54417
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 7983,
+        "tumor_dice": 0.22249163879598663,
+        "finite_logits": true,
+        "gradient_l2": 5.787130832672119,
+        "actual_update_l2": 0.06558801233768463,
+        "seconds": 2.7502617179998197,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 11,
+        "sample": 0,
+        "loss": 0.19193688035011292,
+        "predicted_class_counts": [
+          422907,
+          121390,
+          57815
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 8062,
+        "tumor_dice": 0.22952313167259786,
+        "finite_logits": true,
+        "gradient_l2": 2.7796549797058105,
+        "actual_update_l2": 0.0425824373960495,
+        "seconds": 1.7153952560038306,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 12,
+        "sample": 1,
+        "loss": 0.1866234689950943,
+        "predicted_class_counts": [
+          436176,
+          117472,
+          48464
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 12107,
+        "tumor_dice": 0.3679547768474478,
+        "finite_logits": true,
+        "gradient_l2": 2.990589141845703,
+        "actual_update_l2": 0.03727108612656593,
+        "seconds": 2.811242758994922,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 13,
+        "sample": 0,
+        "loss": 0.16954265534877777,
+        "predicted_class_counts": [
+          448586,
+          109523,
+          44003
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 9605,
+        "tumor_dice": 0.34037350721145326,
+        "finite_logits": true,
+        "gradient_l2": 2.778733730316162,
+        "actual_update_l2": 0.033609338104724884,
+        "seconds": 2.366674778997549,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 14,
+        "sample": 1,
+        "loss": 0.15718114376068115,
+        "predicted_class_counts": [
+          458474,
+          108600,
+          35038
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 13483,
+        "tumor_dice": 0.5148049865409213,
+        "finite_logits": true,
+        "gradient_l2": 2.029325485229492,
+        "actual_update_l2": 0.026469385251402855,
+        "seconds": 1.7033161010040203,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 15,
+        "sample": 0,
+        "loss": 0.1433626115322113,
+        "predicted_class_counts": [
+          469955,
+          102876,
+          29281
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 9456,
+        "tumor_dice": 0.45335123214114487,
+        "finite_logits": true,
+        "gradient_l2": 1.8858915567398071,
+        "actual_update_l2": 0.02415779046714306,
+        "seconds": 2.9178485659940634,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 16,
+        "sample": 1,
+        "loss": 0.13594919443130493,
+        "predicted_class_counts": [
+          473071,
+          103073,
+          25968
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 14161,
+        "tumor_dice": 0.6539216365357531,
+        "finite_logits": true,
+        "gradient_l2": 1.9088302850723267,
+        "actual_update_l2": 0.023644162341952324,
+        "seconds": 2.4249944420007523,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 17,
+        "sample": 0,
+        "loss": 0.12694773077964783,
+        "predicted_class_counts": [
+          483900,
+          94590,
+          23622
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10332,
+        "tumor_dice": 0.5730926033779848,
+        "finite_logits": true,
+        "gradient_l2": 1.5760265588760376,
+        "actual_update_l2": 0.020833589136600494,
+        "seconds": 2.52643083500152,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 18,
+        "sample": 1,
+        "loss": 0.1240350753068924,
+        "predicted_class_counts": [
+          484764,
+          92989,
+          24359
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 13818,
+        "tumor_dice": 0.6627020286796796,
+        "finite_logits": true,
+        "gradient_l2": 2.102409839630127,
+        "actual_update_l2": 0.023327982053160667,
+        "seconds": 2.4414733829908073,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 19,
+        "sample": 0,
+        "loss": 0.11707094311714172,
+        "predicted_class_counts": [
+          492687,
+          87621,
+          21804
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 9523,
+        "tumor_dice": 0.556266246093636,
+        "finite_logits": true,
+        "gradient_l2": 1.8258211612701416,
+        "actual_update_l2": 0.020978780463337898,
+        "seconds": 3.296545575998607,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 20,
+        "sample": 1,
+        "loss": 0.1099417582154274,
+        "predicted_class_counts": [
+          495298,
+          84698,
+          22116
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15495,
+        "tumor_dice": 0.7853721584429407,
+        "finite_logits": true,
+        "gradient_l2": 1.6512829065322876,
+        "actual_update_l2": 0.019475717097520828,
+        "seconds": 2.5041006649989868,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 21,
+        "sample": 0,
+        "loss": 0.1068437248468399,
+        "predicted_class_counts": [
+          501196,
+          82242,
+          18674
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10489,
+        "tumor_dice": 0.6743386158346459,
+        "finite_logits": true,
+        "gradient_l2": 1.5457457304000854,
+        "actual_update_l2": 0.018595661967992783,
+        "seconds": 2.7159187009965535,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 22,
+        "sample": 1,
+        "loss": 0.1031232550740242,
+        "predicted_class_counts": [
+          501261,
+          81243,
+          19608
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 14505,
+        "tumor_dice": 0.785093772834294,
+        "finite_logits": true,
+        "gradient_l2": 1.9716131687164307,
+        "actual_update_l2": 0.021560126915574074,
+        "seconds": 1.9058484429988312,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 23,
+        "sample": 0,
+        "loss": 0.10239842534065247,
+        "predicted_class_counts": [
+          504878,
+          80364,
+          16870
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10348,
+        "tumor_dice": 0.7062276062105443,
+        "finite_logits": true,
+        "gradient_l2": 1.8108916282653809,
+        "actual_update_l2": 0.02070319466292858,
+        "seconds": 2.3656913739978336,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 24,
+        "sample": 1,
+        "loss": 0.09695684164762497,
+        "predicted_class_counts": [
+          504551,
+          78124,
+          19437
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15173,
+        "tumor_dice": 0.8250679717237629,
+        "finite_logits": true,
+        "gradient_l2": 1.557041883468628,
+        "actual_update_l2": 0.018397273495793343,
+        "seconds": 1.7538943070103414,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 25,
+        "sample": 0,
+        "loss": 0.09722346812486649,
+        "predicted_class_counts": [
+          506525,
+          79819,
+          15768
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10075,
+        "tumor_dice": 0.7144630003900294,
+        "finite_logits": true,
+        "gradient_l2": 1.6510683298110962,
+        "actual_update_l2": 0.01832473650574684,
+        "seconds": 2.3150472339912085,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 26,
+        "sample": 1,
+        "loss": 0.09174791723489761,
+        "predicted_class_counts": [
+          507172,
+          75578,
+          19362
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15415,
+        "tumor_dice": 0.8399400626617627,
+        "finite_logits": true,
+        "gradient_l2": 1.7228180170059204,
+        "actual_update_l2": 0.019094185903668404,
+        "seconds": 2.49488191898854,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 27,
+        "sample": 0,
+        "loss": 0.09475715458393097,
+        "predicted_class_counts": [
+          509129,
+          79034,
+          13949
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 9600,
+        "tumor_dice": 0.7277137659187386,
+        "finite_logits": true,
+        "gradient_l2": 1.846427321434021,
+        "actual_update_l2": 0.020616015419363976,
+        "seconds": 2.420815995996236,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 28,
+        "sample": 1,
+        "loss": 0.0899813175201416,
+        "predicted_class_counts": [
+          507297,
+          75257,
+          19558
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15318,
+        "tumor_dice": 0.8302214032140051,
+        "finite_logits": true,
+        "gradient_l2": 1.861264944076538,
+        "actual_update_l2": 0.020876601338386536,
+        "seconds": 2.983342684005038,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 29,
+        "sample": 0,
+        "loss": 0.09105280041694641,
+        "predicted_class_counts": [
+          508233,
+          77787,
+          16092
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10250,
+        "tumor_dice": 0.7186174501349598,
+        "finite_logits": true,
+        "gradient_l2": 1.742211937904358,
+        "actual_update_l2": 0.020451895892620087,
+        "seconds": 2.5506906009977683,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 30,
+        "sample": 1,
+        "loss": 0.08660881221294403,
+        "predicted_class_counts": [
+          508321,
+          76362,
+          17429
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 14890,
+        "tumor_dice": 0.8564362130449787,
+        "finite_logits": true,
+        "gradient_l2": 1.7106409072875977,
+        "actual_update_l2": 0.019360719248652458,
+        "seconds": 2.3802082019974478,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 31,
+        "sample": 0,
+        "loss": 0.08786670118570328,
+        "predicted_class_counts": [
+          509091,
+          76224,
+          16797
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10741,
+        "tumor_dice": 0.7348795840175151,
+        "finite_logits": true,
+        "gradient_l2": 1.4529677629470825,
+        "actual_update_l2": 0.016924528405070305,
+        "seconds": 1.710905276995618,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 32,
+        "sample": 1,
+        "loss": 0.08253321051597595,
+        "predicted_class_counts": [
+          510108,
+          72470,
+          19534
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15735,
+        "tumor_dice": 0.8533774439352442,
+        "finite_logits": true,
+        "gradient_l2": 1.7531336545944214,
+        "actual_update_l2": 0.019151417538523674,
+        "seconds": 2.197536849998869,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 33,
+        "sample": 0,
+        "loss": 0.08523008227348328,
+        "predicted_class_counts": [
+          511460,
+          77579,
+          13073
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 9599,
+        "tumor_dice": 0.7526266269405677,
+        "finite_logits": true,
+        "gradient_l2": 1.731284499168396,
+        "actual_update_l2": 0.019122285768389702,
+        "seconds": 2.175542703989777,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 34,
+        "sample": 1,
+        "loss": 0.07941972464323044,
+        "predicted_class_counts": [
+          512125,
+          71732,
+          18255
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15533,
+        "tumor_dice": 0.8726894769369066,
+        "finite_logits": true,
+        "gradient_l2": 1.6285847425460815,
+        "actual_update_l2": 0.018759112805128098,
+        "seconds": 2.728880886992556,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 35,
+        "sample": 0,
+        "loss": 0.08408260345458984,
+        "predicted_class_counts": [
+          512223,
+          72489,
+          17400
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 11170,
+        "tumor_dice": 0.7487849840791018,
+        "finite_logits": true,
+        "gradient_l2": 1.990580677986145,
+        "actual_update_l2": 0.021419283002614975,
+        "seconds": 2.0671790940104984,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 36,
+        "sample": 1,
+        "loss": 0.08037339895963669,
+        "predicted_class_counts": [
+          510800,
+          73006,
+          18306
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 14980,
+        "tumor_dice": 0.8404162809615978,
+        "finite_logits": true,
+        "gradient_l2": 2.2140872478485107,
+        "actual_update_l2": 0.022818079218268394,
+        "seconds": 2.2662126969953533,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 37,
+        "sample": 0,
+        "loss": 0.08070245385169983,
+        "predicted_class_counts": [
+          510924,
+          77622,
+          13566
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 9977,
+        "tumor_dice": 0.7674320218453137,
+        "finite_logits": true,
+        "gradient_l2": 1.933363914489746,
+        "actual_update_l2": 0.020155057311058044,
+        "seconds": 1.7834126679954352,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 38,
+        "sample": 1,
+        "loss": 0.07589030265808105,
+        "predicted_class_counts": [
+          511674,
+          71632,
+          18806
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15643,
+        "tumor_dice": 0.8654734570804171,
+        "finite_logits": true,
+        "gradient_l2": 2.0570056438446045,
+        "actual_update_l2": 0.023169590160250664,
+        "seconds": 2.14849468000466,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 39,
+        "sample": 0,
+        "loss": 0.07645951956510544,
+        "predicted_class_counts": [
+          512498,
+          75029,
+          14585
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10649,
+        "tumor_dice": 0.7882309400444115,
+        "finite_logits": true,
+        "gradient_l2": 1.08657968044281,
+        "actual_update_l2": 0.014684813097119331,
+        "seconds": 2.54707471599977,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 40,
+        "sample": 1,
+        "loss": 0.07250336557626724,
+        "predicted_class_counts": [
+          513372,
+          70316,
+          18424
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15674,
+        "tumor_dice": 0.8764503592697179,
+        "finite_logits": true,
+        "gradient_l2": 1.4659754037857056,
+        "actual_update_l2": 0.016133219003677368,
+        "seconds": 1.7222796729911352,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 41,
+        "sample": 0,
+        "loss": 0.07563535124063492,
+        "predicted_class_counts": [
+          513283,
+          74005,
+          14824
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10555,
+        "tumor_dice": 0.7744231263069078,
+        "finite_logits": true,
+        "gradient_l2": 1.2649900913238525,
+        "actual_update_l2": 0.014279099181294441,
+        "seconds": 1.6946421199972974,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 42,
+        "sample": 1,
+        "loss": 0.07045872509479523,
+        "predicted_class_counts": [
+          513444,
+          71072,
+          17596
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15379,
+        "tumor_dice": 0.8803342969174848,
+        "finite_logits": true,
+        "gradient_l2": 1.531982183456421,
+        "actual_update_l2": 0.01610708422958851,
+        "seconds": 2.23967472500226,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 43,
+        "sample": 0,
+        "loss": 0.07315633445978165,
+        "predicted_class_counts": [
+          512899,
+          74303,
+          14910
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10622,
+        "tumor_dice": 0.7768879136953739,
+        "finite_logits": true,
+        "gradient_l2": 1.1435506343841553,
+        "actual_update_l2": 0.013967628590762615,
+        "seconds": 2.716754741006298,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 44,
+        "sample": 1,
+        "loss": 0.07125414907932281,
+        "predicted_class_counts": [
+          513056,
+          69475,
+          19581
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15884,
+        "tumor_dice": 0.8603618242877261,
+        "finite_logits": true,
+        "gradient_l2": 2.0682590007781982,
+        "actual_update_l2": 0.02162141539156437,
+        "seconds": 2.2916333470056998,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 45,
+        "sample": 0,
+        "loss": 0.07246780395507812,
+        "predicted_class_counts": [
+          513622,
+          74907,
+          13583
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10421,
+        "tumor_dice": 0.8010608040587286,
+        "finite_logits": true,
+        "gradient_l2": 1.2939157485961914,
+        "actual_update_l2": 0.015896033495664597,
+        "seconds": 1.995191005000379,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 46,
+        "sample": 1,
+        "loss": 0.07073419541120529,
+        "predicted_class_counts": [
+          513843,
+          71412,
+          16857
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 14966,
+        "tumor_dice": 0.8752046783625731,
+        "finite_logits": true,
+        "gradient_l2": 2.2616615295410156,
+        "actual_update_l2": 0.024091552942991257,
+        "seconds": 1.985174260000349,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 47,
+        "sample": 0,
+        "loss": 0.07581351697444916,
+        "predicted_class_counts": [
+          513380,
+          72326,
+          16406
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10734,
+        "tumor_dice": 0.7443569917825318,
+        "finite_logits": true,
+        "gradient_l2": 2.404845714569092,
+        "actual_update_l2": 0.024716710671782494,
+        "seconds": 2.156928368989611,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 48,
+        "sample": 1,
+        "loss": 0.06732025742530823,
+        "predicted_class_counts": [
+          513977,
+          70249,
+          17886
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15437,
+        "tumor_dice": 0.8763802549036306,
+        "finite_logits": true,
+        "gradient_l2": 1.5687344074249268,
+        "actual_update_l2": 0.019472232088446617,
+        "seconds": 2.033802462989115,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 49,
+        "sample": 0,
+        "loss": 0.07160128653049469,
+        "predicted_class_counts": [
+          513721,
+          74903,
+          13488
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10310,
+        "tumor_dice": 0.7954326273965204,
+        "finite_logits": true,
+        "gradient_l2": 1.472766637802124,
+        "actual_update_l2": 0.017253750935196877,
+        "seconds": 1.9287857250019442,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 50,
+        "sample": 1,
+        "loss": 0.06852035224437714,
+        "predicted_class_counts": [
+          513675,
+          71346,
+          17091
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15165,
+        "tumor_dice": 0.8808154730789336,
+        "finite_logits": true,
+        "gradient_l2": 2.0028913021087646,
+        "actual_update_l2": 0.019605586305260658,
+        "seconds": 2.154694829005166,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 51,
+        "sample": 0,
+        "loss": 0.07001318037509918,
+        "predicted_class_counts": [
+          513245,
+          72596,
+          16271
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 11147,
+        "tumor_dice": 0.7766320629833484,
+        "finite_logits": true,
+        "gradient_l2": 1.495543360710144,
+        "actual_update_l2": 0.017101556062698364,
+        "seconds": 2.107284765006625,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 52,
+        "sample": 1,
+        "loss": 0.06343963742256165,
+        "predicted_class_counts": [
+          514330,
+          69411,
+          18371
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15741,
+        "tumor_dice": 0.8815030520244161,
+        "finite_logits": true,
+        "gradient_l2": 1.3298972845077515,
+        "actual_update_l2": 0.015690835192799568,
+        "seconds": 3.3123633520008298,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 53,
+        "sample": 0,
+        "loss": 0.0686730369925499,
+        "predicted_class_counts": [
+          513862,
+          74527,
+          13723
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10485,
+        "tumor_dice": 0.801666794097408,
+        "finite_logits": true,
+        "gradient_l2": 1.5636316537857056,
+        "actual_update_l2": 0.016691988334059715,
+        "seconds": 2.4950377240020316,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 54,
+        "sample": 1,
+        "loss": 0.06149979680776596,
+        "predicted_class_counts": [
+          514432,
+          69777,
+          17903
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15796,
+        "tumor_dice": 0.8963286614083867,
+        "finite_logits": true,
+        "gradient_l2": 0.9378021955490112,
+        "actual_update_l2": 0.012268509715795517,
+        "seconds": 2.3358773150102934,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 55,
+        "sample": 0,
+        "loss": 0.06821560859680176,
+        "predicted_class_counts": [
+          514137,
+          73636,
+          14339
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10530,
+        "tumor_dice": 0.7865839994024053,
+        "finite_logits": true,
+        "gradient_l2": 1.8215988874435425,
+        "actual_update_l2": 0.01851465366780758,
+        "seconds": 1.7558075299893972,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 56,
+        "sample": 1,
+        "loss": 0.0604402981698513,
+        "predicted_class_counts": [
+          514665,
+          68319,
+          19128
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 16264,
+        "tumor_dice": 0.8918867045049491,
+        "finite_logits": true,
+        "gradient_l2": 1.2232520580291748,
+        "actual_update_l2": 0.014483833685517311,
+        "seconds": 1.8367898169963155,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 57,
+        "sample": 0,
+        "loss": 0.0651649460196495,
+        "predicted_class_counts": [
+          514659,
+          73501,
+          13952
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10684,
+        "tumor_dice": 0.809792700951226,
+        "finite_logits": true,
+        "gradient_l2": 1.2865688800811768,
+        "actual_update_l2": 0.014610092155635357,
+        "seconds": 2.617088518003584,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 58,
+        "sample": 1,
+        "loss": 0.061567436903715134,
+        "predicted_class_counts": [
+          514648,
+          70526,
+          16938
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15085,
+        "tumor_dice": 0.8800793442431668,
+        "finite_logits": true,
+        "gradient_l2": 1.707252025604248,
+        "actual_update_l2": 0.01767527498304844,
+        "seconds": 1.8664267849962926,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 59,
+        "sample": 0,
+        "loss": 0.06597378104925156,
+        "predicted_class_counts": [
+          513418,
+          74704,
+          13990
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10516,
+        "tumor_dice": 0.7959129612109744,
+        "finite_logits": true,
+        "gradient_l2": 1.4983700513839722,
+        "actual_update_l2": 0.014930587261915207,
+        "seconds": 1.8564251309871906,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 60,
+        "sample": 1,
+        "loss": 0.058857351541519165,
+        "predicted_class_counts": [
+          514049,
+          69447,
+          18616
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 16118,
+        "tumor_dice": 0.8964654189493589,
+        "finite_logits": true,
+        "gradient_l2": 1.2414435148239136,
+        "actual_update_l2": 0.014572929590940475,
+        "seconds": 2.668485469999723,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 61,
+        "sample": 0,
+        "loss": 0.06665821373462677,
+        "predicted_class_counts": [
+          514124,
+          73861,
+          14127
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10534,
+        "tumor_dice": 0.7931631654242903,
+        "finite_logits": true,
+        "gradient_l2": 1.9479484558105469,
+        "actual_update_l2": 0.01970694400370121,
+        "seconds": 2.7152163489954546,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 62,
+        "sample": 1,
+        "loss": 0.057098641991615295,
+        "predicted_class_counts": [
+          515210,
+          69199,
+          17703
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15726,
+        "tumor_dice": 0.8974490669405923,
+        "finite_logits": true,
+        "gradient_l2": 1.0803920030593872,
+        "actual_update_l2": 0.012514917179942131,
+        "seconds": 2.138544624001952,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 63,
+        "sample": 0,
+        "loss": 0.06329802423715591,
+        "predicted_class_counts": [
+          514547,
+          72153,
+          15412
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 11079,
+        "tumor_dice": 0.7957051028836141,
+        "finite_logits": true,
+        "gradient_l2": 1.2920246124267578,
+        "actual_update_l2": 0.013902589678764343,
+        "seconds": 3.05179886399128,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 64,
+        "sample": 1,
+        "loss": 0.05769026279449463,
+        "predicted_class_counts": [
+          515161,
+          69372,
+          17579
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15480,
+        "tumor_dice": 0.886547162247294,
+        "finite_logits": true,
+        "gradient_l2": 1.3061515092849731,
+        "actual_update_l2": 0.012518251314759254,
+        "seconds": 2.510988198002451,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 65,
+        "sample": 0,
+        "loss": 0.060343801975250244,
+        "predicted_class_counts": [
+          514836,
+          74243,
+          13033
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10549,
+        "tumor_dice": 0.8284121250196325,
+        "finite_logits": true,
+        "gradient_l2": 1.0282073020935059,
+        "actual_update_l2": 0.012825723737478256,
+        "seconds": 2.3951922060077777,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 66,
+        "sample": 1,
+        "loss": 0.056503113359212875,
+        "predicted_class_counts": [
+          515836,
+          66757,
+          19519
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 16255,
+        "tumor_dice": 0.8819380391731322,
+        "finite_logits": true,
+        "gradient_l2": 1.3840422630310059,
+        "actual_update_l2": 0.013361948542296886,
+        "seconds": 1.5898931680130772,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 67,
+        "sample": 0,
+        "loss": 0.06006471812725067,
+        "predicted_class_counts": [
+          514789,
+          73130,
+          14193
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10834,
+        "tumor_dice": 0.8137299083671323,
+        "finite_logits": true,
+        "gradient_l2": 0.9353979825973511,
+        "actual_update_l2": 0.011985357850790024,
+        "seconds": 1.8214178509952035,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 68,
+        "sample": 1,
+        "loss": 0.05612168461084366,
+        "predicted_class_counts": [
+          516136,
+          68377,
+          17599
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15504,
+        "tumor_dice": 0.8874134279663443,
+        "finite_logits": true,
+        "gradient_l2": 1.4052097797393799,
+        "actual_update_l2": 0.013693204149603844,
+        "seconds": 2.047566150999046,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 69,
+        "sample": 0,
+        "loss": 0.05844515934586525,
+        "predicted_class_counts": [
+          514890,
+          73584,
+          13638
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10777,
+        "tumor_dice": 0.8266789398995129,
+        "finite_logits": true,
+        "gradient_l2": 0.7498903274536133,
+        "actual_update_l2": 0.009618780575692654,
+        "seconds": 1.8170000219979556,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 70,
+        "sample": 1,
+        "loss": 0.053041502833366394,
+        "predicted_class_counts": [
+          515852,
+          67608,
+          18652
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 16191,
+        "tumor_dice": 0.8996249479094318,
+        "finite_logits": true,
+        "gradient_l2": 1.0839104652404785,
+        "actual_update_l2": 0.011090373620390892,
+        "seconds": 2.368906035000691,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 71,
+        "sample": 0,
+        "loss": 0.057058971375226974,
+        "predicted_class_counts": [
+          515640,
+          72441,
+          14031
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10993,
+        "tumor_dice": 0.830726214766115,
+        "finite_logits": true,
+        "gradient_l2": 0.6674538254737854,
+        "actual_update_l2": 0.007947474718093872,
+        "seconds": 2.212756103996071,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 72,
+        "sample": 1,
+        "loss": 0.05189557000994682,
+        "predicted_class_counts": [
+          516305,
+          67812,
+          17995
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15936,
+        "tumor_dice": 0.9019186145226102,
+        "finite_logits": true,
+        "gradient_l2": 1.190301775932312,
+        "actual_update_l2": 0.012304450385272503,
+        "seconds": 1.8710572599957231,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 73,
+        "sample": 0,
+        "loss": 0.056445829570293427,
+        "predicted_class_counts": [
+          515340,
+          73074,
+          13698
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10785,
+        "tumor_dice": 0.8253931810354724,
+        "finite_logits": true,
+        "gradient_l2": 0.8612179756164551,
+        "actual_update_l2": 0.009911366738379002,
+        "seconds": 2.526208826006041,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 74,
+        "sample": 1,
+        "loss": 0.0511321946978569,
+        "predicted_class_counts": [
+          515445,
+          67985,
+          18682
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 16187,
+        "tumor_dice": 0.8986537126995142,
+        "finite_logits": true,
+        "gradient_l2": 0.9790788292884827,
+        "actual_update_l2": 0.01058198045939207,
+        "seconds": 2.679380725006922,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 75,
+        "sample": 0,
+        "loss": 0.05646805465221405,
+        "predicted_class_counts": [
+          514924,
+          73359,
+          13829
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10964,
+        "tumor_dice": 0.8349070971672251,
+        "finite_logits": true,
+        "gradient_l2": 0.9486955404281616,
+        "actual_update_l2": 0.010537584312260151,
+        "seconds": 2.080380129002151,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 76,
+        "sample": 1,
+        "loss": 0.05171208828687668,
+        "predicted_class_counts": [
+          516250,
+          68155,
+          17707
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15815,
+        "tumor_dice": 0.9024251069900142,
+        "finite_logits": true,
+        "gradient_l2": 1.4097272157669067,
+        "actual_update_l2": 0.013945434242486954,
+        "seconds": 1.5462262819928583,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 77,
+        "sample": 0,
+        "loss": 0.054952945560216904,
+        "predicted_class_counts": [
+          515709,
+          72986,
+          13417
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 10691,
+        "tumor_dice": 0.8270926814172984,
+        "finite_logits": true,
+        "gradient_l2": 0.8101149797439575,
+        "actual_update_l2": 0.010863679461181164,
+        "seconds": 1.9161314719967777,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 78,
+        "sample": 1,
+        "loss": 0.05176197737455368,
+        "predicted_class_counts": [
+          516546,
+          66687,
+          18879
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 16037,
+        "tumor_dice": 0.8854839600242946,
+        "finite_logits": true,
+        "gradient_l2": 1.416825294494629,
+        "actual_update_l2": 0.01425210852175951,
+        "seconds": 2.3796515459980583,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 79,
+        "sample": 0,
+        "loss": 0.05523477867245674,
+        "predicted_class_counts": [
+          515939,
+          72255,
+          13918
+        ],
+        "tumor_voxels": 12435,
+        "tumor_overlap_voxels": 11024,
+        "tumor_dice": 0.8366409896406481,
+        "finite_logits": true,
+        "gradient_l2": 1.0771129131317139,
+        "actual_update_l2": 0.012844112701714039,
+        "seconds": 2.146978802004014,
+        "learning_rate": 0.01,
+        "bn_once": true
+      },
+      {
+        "step": 80,
+        "sample": 1,
+        "loss": 0.050580400973558426,
+        "predicted_class_counts": [
+          516900,
+          67098,
+          18114
+        ],
+        "tumor_voxels": 17343,
+        "tumor_overlap_voxels": 15987,
+        "tumor_dice": 0.9017683391149843,
+        "finite_logits": true,
+        "gradient_l2": 1.2129405736923218,
+        "actual_update_l2": 0.012956335209310055,
+        "seconds": 2.7895303160039475,
+        "learning_rate": 0.01,
+        "bn_once": true
+      }
+    ],
+    "norm_scope": "all trainable parameters; actual parameter deltas measured after SGD",
+    "norm_parameter_count": 64591723,
+    "latest_eval": {
+      "samples": [
+        {
+          "loss": 0.29424139857292175,
+          "predicted_class_counts": [
+            413483,
+            187889,
+            740
+          ],
+          "tumor_voxels": 12435,
+          "tumor_overlap_voxels": 0,
+          "tumor_dice": 0.0,
+          "finite_logits": true
+        },
+        {
+          "loss": 0.34806573390960693,
+          "predicted_class_counts": [
+            422043,
+            179303,
+            766
+          ],
+          "tumor_voxels": 17343,
+          "tumor_overlap_voxels": 0,
+          "tumor_dice": 0.0,
+          "finite_logits": true
+        }
+      ],
+      "mean_loss": 0.32115356624126434,
+      "mean_tumor_dice": 0.0,
+      "bn_preserved": true,
+      "all_finite": true
+    },
+    "after": {
+      "samples": [
+        {
+          "loss": 0.29424139857292175,
+          "predicted_class_counts": [
+            413483,
+            187889,
+            740
+          ],
+          "tumor_voxels": 12435,
+          "tumor_overlap_voxels": 0,
+          "tumor_dice": 0.0,
+          "finite_logits": true
+        },
+        {
+          "loss": 0.34806573390960693,
+          "predicted_class_counts": [
+            422043,
+            179303,
+            766
+          ],
+          "tumor_voxels": 17343,
+          "tumor_overlap_voxels": 0,
+          "tumor_dice": 0.0,
+          "finite_logits": true
+        }
+      ],
+      "mean_loss": 0.32115356624126434,
+      "mean_tumor_dice": 0.0,
+      "bn_preserved": true,
+      "all_finite": true
+    },
+    "memory": {
+      "allocated_bytes": 778453504,
+      "reserved_bytes": 3399483392,
+      "peak_allocated_bytes": 2571430400,
+      "peak_reserved_bytes": 3399483392,
+      "device_used_bytes": 4810407936,
+      "device_total_bytes": 17094475776
+    },
+    "dice_gain": -0.021452126762995547,
+    "passed": false
+  },
+  "validation_eval": {
+    "samples": [
+      {
+        "loss": 0.18124303221702576,
+        "predicted_class_counts": [
+          416891,
+          184568,
+          653
+        ],
+        "tumor_voxels": 0,
+        "tumor_overlap_voxels": 0,
+        "tumor_dice": 0.0,
+        "finite_logits": true
+      }
+    ],
+    "mean_loss": 0.18124303221702576,
+    "mean_tumor_dice": 0.0,
+    "bn_preserved": true,
+    "all_finite": true
+  },
+  "long_run_gate": "blocked by R7 repeated-step/resume numerical divergence; diagnostic overfit cannot clear execution gate",
+  "final_weights_checkpoint": {
+    "saved": false,
+    "reason": "exercised runner did not serialize final overfit weights before process exit",
+    "future_runner_saves_final_weights": true
+  },
+  "causal_isolation": {
+    "same_final_weights_batch_stat_vs_running_stat": "not executed; final weights not persisted",
+    "bn_explanation": "candidate only, not established"
+  },
+  "artifacts": {
+    "executed_parity_script": "models/reconstruction-20260930/gpu/executed-diagnostics.py",
+    "executed_overfit_script": "models/reconstruction-20260930/gpu/executed-overfit-diagnostics.py",
+    "executed_config": "models/reconstruction-20260930/gpu/executed-config.yaml",
+    "raw_directory": "models/reconstruction-20260930/gpu/"
+  },
+  "reporting_script_sha256": "5325adfcbdc2fa8b3b38ee7e45bb7a14ee3af8b7c7fc661386317cff703e15ee",
+  "checks": {
+    "ruff": "pass",
+    "ruff_format": "pass",
+    "py_compile": "pass",
+    "mypy_script_only_python313_follow_imports_skip": "pass",
+    "gpu_exit_status": 0,
+    "diagnostic_gates": "failed as recorded"
+  }
+}

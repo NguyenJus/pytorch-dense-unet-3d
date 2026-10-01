@@ -2,7 +2,7 @@
 
 These tests pin the architecture per spec §2/§3:
   1. Output shape: (2, 1, 12, 224, 224) -> EXACTLY (2, 3, 12, 224, 224).
-  2. Param count: trainable params within 3.06M - 4.14M (3.6M +/- 15%); prints actual.
+  2. Exact historical parameter count, without a paper-fidelity tolerance band.
   3. Spatial dims: every intermediate matches the §2 table.
 Plus forward + backward on CPU with no NaN and non-None grads.
 
@@ -17,12 +17,6 @@ import torch
 import dense_unet_3d.model.DenseUNet3d as denseunet_module
 from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
 
-# Lower bound / upper bound for ~3.6M +/- 15%.
-# Band is satisfied via half-scale block counts (2,6,12,18) with g=32 preserved
-# — an authorized deviation from the paper's (4,12,24,36); see decision record:
-# docs/research/2026-06-21-denseunet569-architecture-decisions.md
-PARAM_LOWER: int = 3_060_000
-PARAM_UPPER: int = 4_140_000
 FULL_DEPTH_RECONSTRUCTION_PARAMS: int = 10_795_323
 
 
@@ -52,13 +46,9 @@ def test_rejects_input_outside_fixed_spatial_contract(
         model(torch.randn(*shape))
 
 
-def test_param_count_within_band(model: DenseUNet3d) -> None:
-    """Trainable params within 3.06M - 4.14M. Prints the actual count."""
-    total = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"\n[DenseUNet3d] trainable parameters = {total:,}")  # noqa: T201
-    assert PARAM_LOWER <= total <= PARAM_UPPER, (
-        f"Param count {total:,} outside band [{PARAM_LOWER:,}, {PARAM_UPPER:,}]"
-    )
+def test_historical_parameter_count(model: DenseUNet3d) -> None:
+    """Pin compatibility, not fidelity to a contradictory reported count."""
+    assert sum(p.numel() for p in model.parameters()) == 3_523_643
 
 
 def test_full_depth_reconstruction_parameter_count(monkeypatch: pytest.MonkeyPatch) -> None:

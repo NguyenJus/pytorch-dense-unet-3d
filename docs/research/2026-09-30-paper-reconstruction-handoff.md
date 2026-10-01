@@ -1,5 +1,7 @@
 # Alalwan reconstruction implementation handoff
 
+Implementation state and R1–R9 dispositions: [reconstruction implementation ledger](2026-09-30-reconstruction-implementation.md). The original spec below is preserved; open gates remain binding.
+
 Implement a defensible reconstruction of Alalwan's liver and tumor segmentation
 architecture and training recipe. Paper fidelity is the primary objective;
 GTX 1080 compatibility and an 8 GB memory limit are not requirements. Modern

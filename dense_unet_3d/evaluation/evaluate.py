@@ -43,18 +43,98 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable
+from typing import cast
 
+import nibabel as nib
+import numpy as np
 import torch
 import torch.nn as nn
+from nibabel.spatialimages import SpatialImage
 from torch.utils.data import DataLoader
 
+from dense_unet_3d.dataset.LITSDataset import validate_pair
+from dense_unet_3d.dataset.slabs import NativeSlabDataset
 from dense_unet_3d.evaluation.dice_score import _binary_dice
+from dense_unet_3d.evaluation.predict import PredictionInterrupted, predict_volume
 
 NUM_CLASSES = 3  # 0=background, 1=liver, 2=tumor
 
 
 class EvaluationInterrupted(RuntimeError):
     """A bounded evaluation stopped; partial metrics are not a full-split result."""
+
+
+def _evaluate_native_cases(
+    model: nn.Module,
+    device: torch.device,
+    dataset: NativeSlabDataset,
+    *,
+    deadline: float | None,
+    max_cases: int | None,
+    stop_requested: Callable[[], str | None] | None,
+) -> dict[str, float]:
+    """Complete-case Dice: historical MedPy 0.2.2 empty denominator → 0.
+
+    max_batches is interpreted as max_cases for this representation. An exceeded
+    bound withholds the cohort result rather than reporting a subset.
+    """
+    if not dataset.cases:
+        raise ValueError("native evaluation dataset contains no cases")
+    sums = [0.0, 0.0]
+    intersections = [0, 0]
+    denominators = [0, 0]
+    # Predictor accepts the declared spatial config, not label-derived samples.
+    cfg = {
+        "resize_dims": {
+            "D": dataset.geometry["window"],
+            "H": dataset.geometry["height"],
+            "W": dataset.geometry["width"],
+        },
+        "clamp_hu": dataset.geometry["clamp_hu"],
+        "clamp_hu_range": {"min": dataset.geometry["hu_low"], "max": dataset.geometry["hu_high"]},
+    }
+    for case_index, (image_path, target_path) in enumerate(dataset.cases):
+        if max_cases is not None and case_index >= max_cases:
+            raise EvaluationInterrupted(
+                "native evaluation exceeded case limit; cohort metrics withheld"
+            )
+        validate_pair(image_path, target_path)
+        image = cast(SpatialImage, nib.load(image_path))
+        target = cast(SpatialImage, nib.load(target_path))
+        try:
+            prediction = predict_volume(
+                model, device, image, cfg, deadline=deadline, stop_requested=stop_requested
+            )
+        except PredictionInterrupted as exc:
+            raise EvaluationInterrupted("native case incomplete; cohort metrics withheld") from exc
+        case_intersections = [0, 0]
+        case_denominators = [0, 0]
+        for z in range(image.shape[2]):
+            reason = stop_requested() if stop_requested else None
+            if reason or (deadline is not None and time.monotonic() >= deadline):
+                raise EvaluationInterrupted("native scoring interrupted; cohort metrics withheld")
+            truth = np.asarray(target.dataobj[:, :, z])
+            if not np.isfinite(truth).all() or not np.isin(truth, [0, 1, 2]).all():
+                raise ValueError("native target labels must be finite integers in {0,1,2}")
+            for c, (pred_mask, true_mask) in enumerate(
+                [(prediction[:, :, z] >= 1, truth >= 1), (prediction[:, :, z] == 2, truth == 2)]
+            ):
+                case_intersections[c] += int(np.count_nonzero(pred_mask & true_mask))
+                case_denominators[c] += int(
+                    np.count_nonzero(pred_mask) + np.count_nonzero(true_mask)
+                )
+        for c in range(2):
+            denom = case_denominators[c]
+            sums[c] += 2 * case_intersections[c] / denom if denom else 0.0
+            intersections[c] += case_intersections[c]
+            denominators[c] += denom
+    result = {}
+    for c, name in enumerate(("liver", "tumor")):
+        result[f"{name}_per_case"] = sums[c] / len(dataset.cases)
+        result[f"{name}_global"] = (
+            2 * intersections[c] / denominators[c] if denominators[c] else 0.0
+        )
+    return result
 
 
 def evaluate(
@@ -101,6 +181,16 @@ def evaluate(
     if max_batches is not None and max_batches < 1:
         raise ValueError("evaluation max_batches must be positive")
     deadline = time.monotonic() + wall_seconds if wall_seconds is not None else None
+    dataset = getattr(val_loader, "dataset", None)
+    if isinstance(dataset, NativeSlabDataset):
+        return _evaluate_native_cases(
+            model,
+            device,
+            dataset,
+            deadline=deadline,
+            max_cases=max_batches,
+            stop_requested=stop_requested,
+        )
     model.eval()
 
     # Streaming aggregates — never hold all batches' full logits at once.

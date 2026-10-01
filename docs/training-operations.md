@@ -200,4 +200,69 @@ Remaining operational prerequisite: a separately authorized, bounded real GPU
 smoke showing checkpoint-and-stop, process exit, resume and completion within the
 selected allocation before any multi-day launch. CPU tests do not validate GPU
 kernel behavior, real-data throughput, physical host reboot or real disk-full
-hardware conditions. No GPU smoke or training launch is part of this change.
+hardware conditions. The original runtime change did not include GPU execution. The subsequent
+reconstruction diagnostic evidence is linked below; no long run is authorized
+by a software test or diagnostic result.
+
+
+## Reconstruction diagnostics (2026-09-30)
+
+The [gate ledger](research/2026-09-30-reconstruction-implementation.md) supersedes
+historical fidelity assumptions. Reference configuration is deliberately
+unlaunchable; only the explicit bounded diagnostic config may use the managed
+training entry point. Unmanaged `train()`/`run_phase_a()`/`run_phase_b()` reject
+reconstruction configs because they cannot enforce that allocation contract.
+
+`native_slabs` keeps all native depth slices and maps H/W on the shared half-pixel
+grid. Padding target `-100` is excluded from voxel-mean CE. Augmentation is
+explicitly disabled pending its research gate. The all-case component census
+rejects the selected full-FOV resize for long training; see the ledger for the
+negative evidence and native tile follow-up. Both phases preserve labels 0/1/2.
+
+Best/last/recovery exports include model graph, loss/target semantics and execution
+metadata. Resume validates the graph even for operations with identical weight
+shapes, plus source-file hashes, split/sample manifests, geometry and RNG. Schema2
+refuses older continuation files; the old reduced model remains a supported
+weight-evaluation contract. Do not edit old checkpoints to bypass this rejection.
+
+Native validation/prediction averages class probabilities across overlapping
+slabs, restores native H/W probabilities, then chooses labels. It uses only
+input geometry, never target masks, to select samples. `eval --max-cases N`
+limits complete native cases; an incomplete cohort produces no Dice summary.
+The historical `--max-batches` spelling is an alias. Stops during native
+validation keep the previous completed epoch as the recovery authority.
+
+Execution reference: FP32, TF32 off, cuDNN benchmark off/deterministic algorithm
+choice on, no compilation/AMP/checkpoint recomputation. Strict global CUDA
+determinism is disabled explicitly because MaxPool3d backward lacks that mode.
+CPU continuation is checked bitwise; GPU floating replay uses predeclared
+atol1e-6/rtol1e-4 with exact integer/RNG/scheduler state. See the
+[runtime](research/2026-09-30-reconstruction-runtime.json) and
+[GPU receipt](research/2026-09-30-gpu-diagnostics.md) for actual outcomes; recorded
+tolerances are acceptance tests, not a claim that every run passes.
+
+The verified local environment is Python3.13.13 with torch2.13.0+cu130 on RTX5070Ti.
+From the reconstruction worktree, using that environment's Python/tools:
+
+```bash
+PYTHONPATH=. OMP_NUM_THREADS=2 python -m pytest
+ruff check .
+ruff format --check .
+mypy --python-version 3.13 dense_unet_3d
+python scripts/census_reconstruction.py --config configs/reconstruction-reference.yaml \
+  --output models/retention-census.json
+```
+
+Census exit2 means a completed **negative retention gate**; exit0 means its
+predeclared representation checks passed. Other exceptions are audit failures,
+not passing or negative scientific results. The separate header/synthetic native
+tiling investigation is `scripts/audit_native_tiling.py`; it is not a production
+sampler. GPU diagnostics use `scripts/diagnose_reconstruction.py` with a finite
+allocation and isolated artifacts; require GPU authorization for a new execution.
+
+The inspected package pins are in
+`configs/reconstruction-runtime-constraints.txt`; the shared environment passed
+`uv pip check` across 58 installed packages. Final GPU findings failed numerical replay. Training-mode memorization succeeded;
+eval-mode readiness remains inconclusive and its acceptance criterion was unmet; the selected mode is a diagnostic candidate, not a
+numerically certified production configuration. Follow [#19](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/19)
+for required isolation before another learning-readiness claim.

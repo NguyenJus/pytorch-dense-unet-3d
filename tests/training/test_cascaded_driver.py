@@ -547,7 +547,7 @@ class TestRunCascadedTraining:
                 return nn.functional.cross_entropy(logits, target)
 
         def record_evaluate(
-            _model: nn.Module, _device: torch.device, loader: DataLoader
+            _model: nn.Module, _device: torch.device, loader: DataLoader, **_kwargs: object
         ) -> dict[str, float]:
             labels_seen_by_validation.append(next(iter(loader))[1].detach().cpu().clone())
             return {"liver_per_case": 0.5, "tumor_per_case": 0.5}
@@ -888,3 +888,211 @@ class TestPhaseCheckpointSelection:
                 )
 
             assert result["best_epoch"] == 2
+
+
+def test_three_class_phase_a_preserves_labels_and_selects_foreground(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    labels_seen: list[torch.Tensor] = []
+    real_criterion = cascaded_mod.get_criterion
+
+    def record_criterion(cfg, device):
+        inner = real_criterion(cfg, device)
+
+        class Recording(nn.Module):
+            def forward(self, logits, target):
+                labels_seen.append(target.detach().clone())
+                return inner(logits, target)
+
+        return Recording()
+
+    scores = iter(
+        [
+            {"liver_per_case": 0.9, "tumor_per_case": 0.0},
+            {"liver_per_case": 0.6, "tumor_per_case": 0.6},
+        ]
+    )
+    monkeypatch.setattr(cascaded_mod, "get_criterion", record_criterion)
+    monkeypatch.setattr(
+        "dense_unet_3d.evaluation.evaluate.evaluate", lambda *args, **kwargs: next(scores)
+    )
+    cfg = _base_cfg(str(tmp_path), use_scheduler=False)
+    cfg["training"].update(
+        phase_a_targets="three_class", loss_reduction="valid_voxel_mean", phase_a_steps_per_epoch=1
+    )
+    result = run_phase_a(cfg, _TinyModel(), torch.device("cpu"), _loader(), val_loader=_loader())
+    assert result["best_epoch"] == 2
+    assert all(2 in torch.unique(target).tolist() for target in labels_seen)
+    checkpoint = torch.load(tmp_path / "test_cascaded/phase_a/best.pt", weights_only=False)
+    assert checkpoint["training_semantics"]["phase_a_targets"] == "three_class"
+    assert checkpoint["training_semantics"]["loss_reduction"] == "valid_voxel_mean"
+
+
+def test_phase_transfer_has_fresh_optimizer_and_scheduler(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    cfg = _base_cfg(str(tmp_path))
+    cfg["training"].update(
+        phase_a_targets="three_class",
+        phase_a_epochs=1,
+        phase_a_steps_per_epoch=1,
+        phase_b_epochs=1,
+        phase_b_steps_per_epoch=1,
+    )
+    model = _TinyModel()
+    run_phase_a(cfg, model, torch.device("cpu"), _loader())
+    best_path = tmp_path / "test_cascaded/phase_a/best.pt"
+    best = torch.load(best_path, weights_only=False)
+    assert best["optimizer_state_dict"]["state"]  # Momentum exists in A.
+    observed = []
+    real_epoch = cascaded_mod._run_epoch
+
+    def inspect_epoch(**kwargs):
+        observed.append((len(kwargs["optimizer"].state), kwargs["optimizer"].param_groups[0]["lr"]))
+        return real_epoch(**kwargs)
+
+    monkeypatch.setattr(cascaded_mod, "_run_epoch", inspect_epoch)
+    result = run_phase_b(
+        cfg, model, torch.device("cpu"), _loader(), phase_a_best_path=str(best_path)
+    )
+    assert observed == [(0, 0.01)]
+    for key, value in best["model_state_dict"].items():
+        assert torch.equal(result["loaded_phase_a_state_dict"][key], value)
+    final = torch.load(tmp_path / "test_cascaded/phase_b/last.pt", weights_only=False)
+    assert final["scheduler_state_dict"]["last_epoch"] == 1
+
+
+def test_slab_diagnostics_exclude_padding_and_bound_update_snapshot(tmp_path) -> None:
+    model = _TinyModel()
+    with torch.no_grad():
+        model.conv.weight.zero_()
+        model.conv.bias.copy_(torch.tensor([0.0, 0.0, 1.0]))
+    cfg = _base_cfg(str(tmp_path), use_scheduler=False)
+    cfg["training"].update(loss_reduction="valid_voxel_mean", diagnostic_parameter_limit=3)
+    diagnostics: dict = {}
+    batch = {
+        "image": torch.ones(1, 1, 1, 1, 4),
+        "target": torch.tensor([[[[0, 1, 2, 999]]]]),
+        "valid_mask": torch.tensor([[[[True, True, True, False]]]]),
+    }
+    loss = _run_epoch(
+        config=cfg,
+        model=model,
+        device=torch.device("cpu"),
+        loader=[batch],
+        optimizer=cascaded_mod.get_optimizer(model, cfg),
+        steps_per_epoch=1,
+        diagnostics=diagnostics,
+    )
+    assert torch.isfinite(torch.tensor(loss))
+    assert diagnostics["class_voxel_counts"] == [1, 1, 1]
+    assert diagnostics["predicted_class_voxel_counts"] == [0, 0, 3]
+    assert diagnostics["valid_voxels"] == 3
+    assert diagnostics["tumor_positive_samples"] == 1
+    assert diagnostics["samples"] == diagnostics["updates"] == 1
+    assert all(value > 0 for value in diagnostics["class_weighted_ce_sums"])
+    assert diagnostics["gradient_l2_max"] > 0
+    assert diagnostics["sampled_parameter_update_l2_max"] > 0
+    assert diagnostics["sampled_parameter_count"] == 3
+
+
+def test_epoch_rejects_nonfinite_loss_without_parameter_update(tmp_path) -> None:
+    model = _TinyModel()
+    cfg = _base_cfg(str(tmp_path), use_scheduler=False)
+    before = {key: value.clone() for key, value in model.state_dict().items()}
+    image = torch.full((1, 1, 1, 1, 1), float("nan"))
+    target = torch.zeros(1, 1, 1, 1, dtype=torch.long)
+    with pytest.raises(FloatingPointError, match="loss"):
+        _run_epoch(
+            config=cfg,
+            model=model,
+            device=torch.device("cpu"),
+            loader=[(image, target)],
+            optimizer=cascaded_mod.get_optimizer(model, cfg),
+            steps_per_epoch=1,
+        )
+    for key, value in model.state_dict().items():
+        assert torch.equal(value, before[key])
+
+
+def test_unknown_phase_policy_rejected(tmp_path) -> None:
+    cfg = _base_cfg(str(tmp_path))
+    cfg["training"]["phase_a_targets"] = "tumor_only"
+    with pytest.raises(ValueError, match="phase_a_targets"):
+        run_phase_a(cfg, _TinyModel(), torch.device("cpu"), _loader())
+    cfg["training"]["phase_transfer_policy"] = "carry_momentum"
+    with pytest.raises(ValueError, match="phase_transfer_policy"):
+        run_phase_b(cfg, _TinyModel(), torch.device("cpu"), _loader(), phase_a_best_path="missing")
+
+
+def test_managed_three_class_dictionary_training(tmp_path) -> None:
+    cfg = _base_cfg(str(tmp_path), use_scheduler=False)
+    cfg["training"].update(
+        phase_a_targets="three_class",
+        loss_reduction="valid_voxel_mean",
+        phase_a_epochs=1,
+        phase_a_steps_per_epoch=1,
+        phase_b_epochs=1,
+        phase_b_steps_per_epoch=1,
+    )
+    import nibabel as nib
+    import numpy as np
+
+    from dense_unet_3d.dataset.slabs import NativeSlabDataset
+
+    image = np.ones((2, 2, 1), dtype=np.float32)
+    target = np.array([[[0], [2]], [[1], [0]]], dtype=np.int16)
+    nib.save(nib.Nifti1Image(image, np.eye(4)), tmp_path / "volume-0.nii.gz")
+    nib.save(nib.Nifti1Image(target, np.eye(4)), tmp_path / "segmentation-0.nii.gz")
+    cfg["dataset"] = {"sampling": "native_slabs", "resize_dims": {"D": 2, "H": 2, "W": 2}}
+    loader = DataLoader(NativeSlabDataset([str(tmp_path)], cfg["dataset"]), batch_size=1)
+    result = run_cascaded_training(cfg, _TinyModel(), torch.device("cpu"), loader)
+    assert result["phase_a"]["epoch_losses"] and result["phase_b"]["epoch_losses"]
+    phase_a_best = torch.load(tmp_path / "test_cascaded/phase_a/best.pt", weights_only=False)
+    assert phase_a_best["training_semantics"]["phase_a_targets"] == "three_class"
+    for key, value in phase_a_best["model_state_dict"].items():
+        assert torch.equal(result["phase_b_loaded_phase_a_state_dict"][key], value)
+
+
+def test_nonfinite_gradients_fail_before_optimizer_update(tmp_path) -> None:
+    model = _TinyModel()
+    cfg = _base_cfg(str(tmp_path), use_scheduler=False)
+    handle = model.conv.weight.register_hook(
+        lambda gradient: torch.full_like(gradient, float("nan"))
+    )
+    before = {key: value.clone() for key, value in model.state_dict().items()}
+    try:
+        with pytest.raises(FloatingPointError, match="gradients"):
+            _run_epoch(
+                config=cfg,
+                model=model,
+                device=torch.device("cpu"),
+                loader=_loader(),
+                optimizer=cascaded_mod.get_optimizer(model, cfg),
+                steps_per_epoch=1,
+            )
+    finally:
+        handle.remove()
+    for key, value in model.state_dict().items():
+        assert torch.equal(value, before[key])
+
+
+def test_liver_only_native_slabs_rejected() -> None:
+    with pytest.raises(ValueError, match="three_class"):
+        cascaded_mod.phase_a_target_mode(
+            {"dataset": {"sampling": "native_slabs"}, "training": {"phase_a_targets": "liver_only"}}
+        )
+
+
+@pytest.mark.parametrize("phase", ["a", "b"])
+def test_unmanaged_phases_reject_reconstruction_before_model_activity(phase: str, tmp_path) -> None:
+    cfg = _base_cfg(str(tmp_path))
+    cfg["experiment"] = {"kind": "reconstruction", "mode": "diagnostic"}
+    model = _TinyModel()
+    with mock.patch.object(model, "to", side_effect=AssertionError("model touched")):
+        with pytest.raises(ValueError, match="managed run_cascaded_training"):
+            if phase == "a":
+                run_phase_a(cfg, model, torch.device("cpu"), _loader())
+            else:
+                run_phase_b(cfg, model, torch.device("cpu"), _loader(), phase_a_best_path="missing")
+    assert not (tmp_path / "test_cascaded").exists()

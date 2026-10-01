@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any
 
@@ -5,11 +6,24 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from dense_unet_3d.dataset.LITSDataset import LITSDataset, _case_id, discover_pairs, preflight_pairs
+from dense_unet_3d.dataset.slabs import NativeSlabDataset
 from dense_unet_3d.dataset.transforms.ClampValues import ClampValues
 from dense_unet_3d.dataset.transforms.RandomHorizontalFlip import RandomHorizontalFlip
 from dense_unet_3d.dataset.transforms.ReshapeTensor import ReshapeTensor
 from dense_unet_3d.dataset.transforms.Resize import Resize
 from dense_unet_3d.dataset.transforms.ScaleAndPadOrCrop import ScaleAndPadOrCrop
+
+
+def _validate_split_manifest(config: dict, split: str, pairs: list[tuple[str, str]]) -> None:
+    path = config.get("experiment", {}).get("split_manifest")
+    if path is None:
+        return
+    with open(path) as stream:
+        manifest = json.load(stream)
+    expected = manifest["case_ids"][split]
+    actual = [_case_id(volume, "volume") for volume, _target in pairs]
+    if len(expected) != len(set(expected)) or set(actual) != set(expected):
+        raise ValueError(f"{split} source cases differ from experiment.split_manifest")
 
 
 def compose_transforms(config: dict, train: bool = True) -> dict:
@@ -130,6 +144,7 @@ def preflight_config(config: dict, *, full_decode: bool = False) -> dict[str, in
         if key not in discovered:
             continue
         try:
+            _validate_split_manifest(config, key, discovered[key])
             counts[key] = preflight_pairs(
                 discovered[key], full_decode=full_decode, split_name=split_name
             )
@@ -145,7 +160,7 @@ def prepare_dataset(
     train: bool,
     *,
     detect_tumors: bool = True,
-) -> LITSDataset:
+) -> LITSDataset | NativeSlabDataset:
     """
     Builds the dataset based on user configuration
 
@@ -181,6 +196,14 @@ def prepare_dataset(
                 raise ValueError(
                     "train_img_dirs and test_img_dirs overlap; validation data would leak into training"
                 )
+
+    if config["dataset"].get("sampling", "legacy_volume_resize") == "native_slabs":
+        _validate_split_manifest(
+            config, "train" if train else "validation", discover_pairs(img_dirs)
+        )
+        return NativeSlabDataset(img_dirs, config["dataset"], detect_tumors=detect_tumors)
+    if config["dataset"].get("sampling", "legacy_volume_resize") != "legacy_volume_resize":
+        raise ValueError("unknown dataset.sampling")
 
     transform = compose_transforms(config, train=train)
     all_transforms = transform["all_transforms"]

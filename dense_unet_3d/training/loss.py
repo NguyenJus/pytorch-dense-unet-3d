@@ -1,22 +1,8 @@
-"""Weighted cross-entropy loss for 3D-DenseUNet-569.
+"""Explicit weighted CE reductions for historical and Eq. (2) experiments.
 
-Paper: Alalwan et al. (2021), §2.
-Default class weights: background=0.2, liver=1.2, lesion=2.2.
-
-Usage
------
-criterion = get_criterion(config, device=device)  # weight tensor on device
-loss = criterion(logits, target)                   # target: (N,D,H,W) long
-
-Design note
------------
-The criterion is a plain nn.CrossEntropyLoss with a weight= tensor.  Class
-weights are read from ``config["training"]["class_weights"]`` (keys
-``background`` / ``liver`` / ``lesion`` -> class indices 0 / 1 / 2), falling
-back to the defaults below when the key is absent. The weight tensor is moved
-to *device* inside get_criterion() so callers can use the criterion directly.
-Calling ``criterion.to(device)`` is also valid for PyTorch modules, but is not
-needed when the weight is constructed on the target device.
+``weighted_mean`` preserves the historical PyTorch target-weight denominator.
+``valid_voxel_mean`` divides weighted CE by the count of non-padding voxels.
+Padding is represented by ignore index -100 in both reductions.
 """
 
 from __future__ import annotations
@@ -25,49 +11,51 @@ from typing import Any
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
-__all__ = ["CLASS_WEIGHTS", "get_criterion"]
+__all__ = ["CLASS_WEIGHTS", "IGNORE_INDEX", "WeightedVoxelCrossEntropy", "get_criterion"]
 
-# [background, liver, lesion] — order matches class indices 0 / 1 / 2
 CLASS_WEIGHTS: torch.Tensor = torch.tensor([0.2, 1.2, 2.2], dtype=torch.float32)
+IGNORE_INDEX = -100
+
+
+class WeightedVoxelCrossEntropy(nn.CrossEntropyLoss):
+    """Class-index CE with an explicit denominator and rejected empty targets."""
+
+    def __init__(self, weight: torch.Tensor, loss_reduction: str) -> None:
+        if loss_reduction not in {"weighted_mean", "valid_voxel_mean"}:
+            raise ValueError(f"Unsupported loss_reduction: {loss_reduction!r}")
+        super().__init__(weight=weight, ignore_index=IGNORE_INDEX)
+        self.loss_reduction = loss_reduction
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        valid_count = (target != self.ignore_index).sum()
+        if valid_count.item() == 0:
+            raise ValueError("Training batch contains no valid target voxels")
+        if self.loss_reduction == "weighted_mean":
+            return super().forward(input, target)
+        numerator = F.cross_entropy(
+            input, target, weight=self.weight, ignore_index=self.ignore_index, reduction="none"
+        ).sum()
+        return numerator / valid_count
 
 
 def get_criterion(
     config: dict[str, Any],
     device: torch.device | str | None = None,
-) -> nn.CrossEntropyLoss:
-    """Return a CrossEntropyLoss with config-driven class weights on *device*.
-
-    Parameters
-    ----------
-    config:
-        Run configuration dict.  Class weights are read from
-        ``config["training"]["class_weights"]`` with keys ``background`` /
-        ``liver`` / ``lesion`` mapped to class indices 0 / 1 / 2.  When that
-        key is absent, the module-level defaults ``[0.2, 1.2, 2.2]`` are used.
-    device:
-        Target device for the weight tensor (typically the model/logits
-        device). Defaults to CPU.
-
-    Returns
-    -------
-    nn.CrossEntropyLoss
-        Criterion with weight tensor on *device*.
-    """
-    class_weights = config.get("training", {}).get("class_weights")
+) -> WeightedVoxelCrossEntropy:
+    """Build configured CE; omission retains the historical weighted mean."""
+    training = config.get("training", {})
+    class_weights = training.get("class_weights")
     if class_weights is None:
         weight = CLASS_WEIGHTS.clone()
     else:
         weight = torch.tensor(
-            [
-                class_weights["background"],
-                class_weights["liver"],
-                class_weights["lesion"],
-            ],
+            [class_weights["background"], class_weights["liver"], class_weights["lesion"]],
             dtype=torch.float32,
         )
-
+    if not torch.isfinite(weight).all() or not (weight > 0).all():
+        raise ValueError("Class weights must be finite and strictly positive")
     if device is not None:
         weight = weight.to(device)
-
-    return nn.CrossEntropyLoss(weight=weight)
+    return WeightedVoxelCrossEntropy(weight, training.get("loss_reduction", "weighted_mean"))

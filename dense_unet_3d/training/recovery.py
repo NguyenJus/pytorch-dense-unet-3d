@@ -7,8 +7,9 @@ import hashlib
 import json
 import random
 import time
+from collections.abc import Sized
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -29,7 +30,7 @@ from dense_unet_3d.training.runtime import (
     describe_schedule,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _transform_identity(transform: Any) -> Any:
@@ -86,11 +87,23 @@ def _transform_identity(transform: Any) -> Any:
     return identity
 
 
-def _dataset_identity(dataset: Any) -> Any:
+def _source_file_identity(name: str, cache: dict[str, Any]) -> dict[str, str]:
+    path = str(Path(name).resolve())
+    if path not in cache:
+        digest = hashlib.sha256()
+        with open(path, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        cache[path] = {"path": path, "sha256": digest.hexdigest()}
+    return cast(dict[str, str], cache[path])
+
+
+def _dataset_identity(dataset: Any, file_cache: dict[str, Any] | None = None) -> Any:
+    cache = {} if file_cache is None else file_cache
     if type(dataset) is Subset:
         return {
             "subset": list(map(int, dataset.indices)),
-            "dataset": _dataset_identity(dataset.dataset),
+            "dataset": _dataset_identity(dataset.dataset, cache),
         }
     if type(dataset) is TensorDataset:
         return {
@@ -106,6 +119,15 @@ def _dataset_identity(dataset: Any) -> Any:
             ]
         }
     from dense_unet_3d.dataset.LITSDataset import LITSDataset
+    from dense_unet_3d.dataset.slabs import NativeSlabDataset
+
+    if type(dataset) is NativeSlabDataset:
+        return {
+            "manifest": dataset.manifest(),
+            "files": [
+                [_source_file_identity(name, cache) for name in pair] for pair in dataset.cases
+            ],
+        }
 
     if type(dataset) is LITSDataset:
         preprocessing = {
@@ -116,11 +138,7 @@ def _dataset_identity(dataset: Any) -> Any:
         for pair in zip(dataset.volume_img_paths, dataset.segmentation_img_paths, strict=True):
             record = []
             for name in pair:
-                digest = hashlib.sha256()
-                with open(name, "rb") as stream:
-                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                        digest.update(chunk)
-                record.append({"path": str(Path(name).resolve()), "sha256": digest.hexdigest()})
+                record.append(_source_file_identity(name, cache))
             files.append(record)
         return {
             "files": files,
@@ -131,7 +149,7 @@ def _dataset_identity(dataset: Any) -> Any:
     raise ValueError("Exact resume supports only TensorDataset, LITSDataset and Subset datasets")
 
 
-def _loader_identity(loader: DataLoader | None) -> Any:
+def _loader_identity(loader: DataLoader | None, file_cache: dict[str, Any] | None = None) -> Any:
     if loader is None:
         return None
     if (
@@ -148,7 +166,7 @@ def _loader_identity(loader: DataLoader | None) -> Any:
     if loader.collate_fn is not default_collate:
         raise ValueError("Exact resume requires default_collate")
     return {
-        "dataset": _dataset_identity(loader.dataset),
+        "dataset": _dataset_identity(loader.dataset, file_cache),
         "batch_size": loader.batch_size,
         "drop_last": loader.drop_last,
         "sampler": type(loader.sampler).__name__,
@@ -216,9 +234,18 @@ def _restore_rng(state: dict[str, Any], loaders: list[DataLoader | None]) -> Non
 
 
 def _snapshot(
-    model: Any, optimizer: Any, scheduler: Any, epoch: int, metrics: Any
+    model: Any,
+    optimizer: Any,
+    scheduler: Any,
+    epoch: int,
+    metrics: Any,
+    config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    from dense_unet_3d.training.experiment import checkpoint_model_metadata, experiment_metadata
+
     return {
+        **checkpoint_model_metadata(model),
+        **experiment_metadata(config or {}),
         "model_state_dict": copy.deepcopy(model.state_dict()),
         "optimizer_state_dict": copy.deepcopy(optimizer.state_dict()),
         "scheduler_state_dict": copy.deepcopy(scheduler.state_dict())
@@ -229,7 +256,13 @@ def _snapshot(
     }
 
 
-def _validate_checkpoint(state: Any, identity: str, run_id: str, schedule: dict[str, Any]) -> None:
+def _validate_checkpoint(
+    state: Any,
+    identity: str,
+    run_id: str,
+    schedule: dict[str, Any],
+    expected_metadata: dict[str, Any] | None = None,
+) -> None:
     keys = {
         "schema_version",
         "identity",
@@ -328,6 +361,14 @@ def _validate_checkpoint(state: Any, identity: str, run_id: str, schedule: dict[
         raise ValueError("Invalid recovery history/phase progress")
     if expected != state["global_step"]:
         raise ValueError("Invalid recovery global step")
+    if expected_metadata is not None:
+        snapshots = [state] + [
+            best["checkpoint"] for best in state["best"].values() if best is not None
+        ]
+        for snapshot in snapshots:
+            for key, expected_value in expected_metadata.items():
+                if key not in snapshot or snapshot[key] != expected_value:
+                    raise ValueError(f"Incompatible checkpoint metadata: {key}")
 
 
 def run_recoverable(
@@ -338,19 +379,55 @@ def run_recoverable(
     session: RunSession,
 ) -> dict[str, Any]:
     from dense_unet_3d.training import cascaded_driver as driver
+    from dense_unet_3d.training.experiment import (
+        checkpoint_model_metadata,
+        configure_execution,
+        experiment_metadata,
+    )
 
     if not session._entered or config_identity(config) != session.state["config_identity"]:
         raise ValueError("Training requires an entered session for this configuration")
     schedule = describe_schedule(config)
-    identities = [_loader_identity(loader) for loader in loaders]
+    configure_execution(config)
+    phase_a_targets = driver.phase_a_target_mode(config)
+    driver.validate_phase_transfer_policy(config)
+    file_cache: dict[str, Any] = {}
+    identities = [_loader_identity(loader, file_cache) for loader in loaders]
+    workload = {}
+    for phase, loader in (("phase_a", loaders[0]), ("phase_b", loaders[2])):
+        if loader is None or not len(loader):
+            raise ValueError("Training requires a nonempty loader")
+        batch_size = loader.batch_size
+        if batch_size is None:
+            raise ValueError("Training requires explicit microbatch size")
+        steps = schedule["phases"][phase]["steps_per_epoch"]
+        cycles, remainder = divmod(steps, len(loader))
+        size = len(cast(Sized, loader.dataset))
+        samples_per_pass = len(loader) * batch_size if loader.drop_last else size
+        exposures = cycles * samples_per_pass + min(remainder * batch_size, size)
+        workload[phase] = {
+            "indexed_samples": size,
+            "source_cases": len(cast(Sized, getattr(loader.dataset, "cases", loader.dataset))),
+            "minibatches_per_pass": len(loader),
+            "microbatch": batch_size,
+            "effective_batch": batch_size,
+            "gradient_accumulation": 1,
+            "sample_exposures_per_epoch": exposures,
+            "sample_exposures_total": exposures * schedule["phases"][phase]["epochs"],
+        }
+    session.event("sample_workload", phases=workload)
+    split_path = config.get("experiment", {}).get("split_manifest")
+    split_identity = _source_file_identity(split_path, file_cache) if split_path else None
     architecture = {k: [list(v.shape), str(v.dtype)] for k, v in model.state_dict().items()}
     identity = hashlib.sha256(
         json.dumps(
             {
                 "config": config_identity(config),
                 "data": identities,
+                "split_manifest": split_identity,
                 "generator_topology": _generator_topology(loaders),
                 "architecture": architecture,
+                "model_metadata": checkpoint_model_metadata(model),
                 "model_class": type(model).__module__ + "." + type(model).__qualname__,
                 "device_type": device.type,
                 "torch_version": str(torch.__version__),
@@ -359,6 +436,7 @@ def run_recoverable(
         ).encode()
     ).hexdigest()
     model.to(device)
+    expected_metadata = {**checkpoint_model_metadata(model), **experiment_metadata(config)}
     optimizer = driver.get_optimizer(model, config)
     scheduler = driver.get_scheduler(optimizer, config)
     if session.resume:
@@ -373,11 +451,13 @@ def run_recoverable(
             session.charge_recovery_retry()
             previous = path.with_name("recovery.previous.pt")
             state = torch.load(previous, map_location="cpu", weights_only=False)
-            _validate_checkpoint(state, identity, session.state["run_id"], schedule)
+            _validate_checkpoint(
+                state, identity, session.state["run_id"], schedule, expected_metadata
+            )
             if path.exists():
                 path.rename(path.with_name("recovery.corrupt." + session.attempt_id + ".pt"))
             session.event("recovered_previous_checkpoint", path=str(previous))
-        _validate_checkpoint(state, identity, session.state["run_id"], schedule)
+        _validate_checkpoint(state, identity, session.state["run_id"], schedule, expected_metadata)
         model.load_state_dict(state["model_state_dict"])
         optimizer.load_state_dict(state["optimizer_state_dict"])
         if (scheduler is None) != (state["scheduler_state_dict"] is None):
@@ -401,7 +481,7 @@ def run_recoverable(
     def checkpoint() -> None:
         session.check_storage()
         state.update(
-            _snapshot(model, optimizer, scheduler, state["epoch"], state.get("metrics", {}))
+            _snapshot(model, optimizer, scheduler, state["epoch"], state.get("metrics", {}), config)
         )
         state["rng"] = _rng(loaders)
         state["cumulative_seconds"] = session.cumulative_seconds
@@ -434,7 +514,7 @@ def run_recoverable(
                 raise ValueError(f"{phase} produced no finite validation selection score")
             atomic_checkpoint(
                 session.run_dir / phase / "last.pt",
-                _snapshot(model, optimizer, scheduler, state["epoch"], state["metrics"]),
+                _snapshot(model, optimizer, scheduler, state["epoch"], state["metrics"], config),
             )
             if phase == "phase_a":
                 weights = state["best"][phase]["checkpoint"]["model_state_dict"]
@@ -455,12 +535,13 @@ def run_recoverable(
         train_loader: Any
         val_loader: Any
         train_loader, val_loader = loaders[:2] if phase == "phase_a" else loaders[2:]
-        if phase == "phase_a":
+        if phase == "phase_a" and phase_a_targets == "liver_only":
             train_loader = driver._LiverOnlyLoader(train_loader)
             val_loader = driver._LiverOnlyLoader(val_loader) if val_loader is not None else None
         start = time.monotonic()
         learning_rates = [group["lr"] for group in optimizer.param_groups]
         session.event("training", phase=phase, epoch=epoch, global_step=state["global_step"])
+        diagnostics: dict[str, Any] = {}
         loss = driver._run_epoch(
             config=config,
             model=model,
@@ -468,6 +549,7 @@ def run_recoverable(
             loader=train_loader,
             optimizer=optimizer,
             steps_per_epoch=phase_schedule["steps_per_epoch"],
+            diagnostics=diagnostics,
         )
         if not np.isfinite(loss):
             raise FloatingPointError("Nonfinite training loss")
@@ -476,19 +558,41 @@ def run_recoverable(
             scheduler.step()
         next_learning_rates = [group["lr"] for group in optimizer.param_groups]
         metrics = {"train_loss": loss}
+        if (
+            diagnostics.get("tumor_positive_samples", 0)
+            and diagnostics.get("predicted_class_voxel_counts", [0, 0, 0])[2] == 0
+        ):
+            state["zero_tumor_positive_epochs"] = state.get("zero_tumor_positive_epochs", 0) + 1
+            session.event(
+                "zero_tumor_predictions",
+                phase=phase,
+                epoch=epoch,
+                consecutive_positive_epochs=state["zero_tumor_positive_epochs"],
+            )
+        elif diagnostics.get("tumor_positive_samples", 0):
+            state["zero_tumor_positive_epochs"] = 0
         validation_seconds = 0.0
         selection = None
         if val_loader is None:
             selection = 0.0
         elif epoch % schedule["validation_every"] == 0 or epoch == phase_schedule["epochs"]:
-            from dense_unet_3d.evaluation.evaluate import evaluate
+            from dense_unet_3d.evaluation.evaluate import EvaluationInterrupted, evaluate
 
             session.event("validation", phase=phase, epoch=epoch, global_step=state["global_step"])
             start_validation = time.monotonic()
-            metrics.update(evaluate(model, device, val_loader))
+            try:
+                metrics.update(
+                    evaluate(model, device, val_loader, stop_requested=session.stop_reason)
+                )
+            except EvaluationInterrupted as exc:
+                # No partial validation selects a best checkpoint. The last
+                # completed epoch remains the recovery transaction boundary.
+                reason = session.stop_reason() or "budget exhausted"
+                session.event("validation_interrupted", phase=phase, epoch=epoch, error=str(exc))
+                break
             validation_seconds = time.monotonic() - start_validation
             components = [metrics.get("liver_per_case", float("nan"))]
-            if phase == "phase_b":
+            if phase == "phase_b" or phase_a_targets == "three_class":
                 components.append(metrics.get("tumor_per_case", float("nan")))
             if any(np.isinf(value) for value in components):
                 raise FloatingPointError("Infinite validation selection metric")
@@ -503,12 +607,13 @@ def run_recoverable(
                 "score": selection,
                 "epoch": epoch,
                 "metrics": metrics,
-                "checkpoint": _snapshot(model, optimizer, scheduler, epoch, metrics),
+                "checkpoint": _snapshot(model, optimizer, scheduler, epoch, metrics, config),
             }
         state["epoch"] = epoch
         state["global_step"] += phase_schedule["steps_per_epoch"]
         state["history"][phase].append(loss)
         state["metrics"] = metrics
+        state["diagnostics"] = diagnostics
         checkpoint()
         if improved:
             atomic_checkpoint(
@@ -530,6 +635,7 @@ def run_recoverable(
             epoch=epoch,
             global_step=state["global_step"],
             metrics=metrics,
+            diagnostics=diagnostics,
             learning_rates=learning_rates,
             next_learning_rates=next_learning_rates,
             training_seconds=training_seconds,

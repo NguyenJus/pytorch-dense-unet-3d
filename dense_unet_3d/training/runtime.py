@@ -269,6 +269,11 @@ class RunSession:
             budget_seconds if budget_seconds is not None else runtime.get("budget_seconds")
         )
         self.max_retries = max_retries if max_retries is not None else runtime.get("max_retries", 0)
+        from dense_unet_3d.training.experiment import validate_experiment
+
+        effective_config = copy.deepcopy(config)
+        effective_config.setdefault("runtime", {})["wall_seconds"] = self.wall_seconds
+        validate_experiment(effective_config)
         for value in (self.wall_seconds, self.budget_seconds):
             if value is not None and (not math.isfinite(value) or value <= 0):
                 raise ValueError("Runtime limits must be positive finite seconds")

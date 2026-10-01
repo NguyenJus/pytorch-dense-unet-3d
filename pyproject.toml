@@ -22,6 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "scipy>=1.10",  # Connected-component retention census and geometry checks.
     "ruff>=0.4",
     "mypy>=1.10",
     "pytest>=8.0",
