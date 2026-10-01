@@ -115,7 +115,128 @@ with runtime.RunSession(config) as session:
     assert child.wait(timeout=10) == 0
 
 
-def test_force_rechecks_attempt_ownership(tmp_path, child_run, monkeypatch):
+@pytest.mark.parametrize("identity_change", [None, "start_ticks", "boot_id", "host"])
+def test_force_rechecks_terminal_attempt_blocked_after_context(
+    tmp_path, child_run, monkeypatch, identity_change
+):
+    child = child_run("""
+with runtime.RunSession(config) as session:
+    print('ready', flush=True)
+    sys.stdin.readline()
+    assert session.stop_reason() == 'user stopped'
+print('terminal-written', flush=True)
+sys.stdin.readline()  # Deliberately hang after terminal publication and lock release.
+""")
+    original_send = runtime._pidfd_send_signal
+    original_identity = runtime._process_identity
+    terminal_published = False
+    sent = []
+
+    def identity_after_terminal(pid):
+        identity = original_identity(pid)
+        if (
+            identity_change is not None
+            and terminal_published
+            and threading.current_thread() is threading.main_thread()
+        ):
+            identity[identity_change] = "replacement"
+        return identity
+
+    def send_and_finish(fd, sig):
+        nonlocal terminal_published
+        sent.append(sig)
+        original_send(fd, sig)
+        if sig == signal.SIGTERM:
+            child.stdin.write("finish\n")
+            child.stdin.flush()
+            assert select.select([child.stdout], [], [], 10)[0], "terminal publication timed out"
+            assert child.stdout.readline().strip() == "terminal-written"
+            assert runtime.read_status(tmp_path / "run")["ownership"] == "released"
+            assert child.poll() is None
+            terminal_published = True
+
+    monkeypatch.setattr(runtime, "_pidfd_send_signal", send_and_finish)
+    monkeypatch.setattr(runtime, "_process_identity", identity_after_terminal)
+    if identity_change is not None:
+        with pytest.raises(RuntimeError, match="Owner changed"):
+            runtime.request_stop(tmp_path / "run", wait_seconds=0.2, force=True)
+        assert sent == [signal.SIGTERM]
+        assert child.poll() is None
+        return
+    result = runtime.request_stop(tmp_path / "run", wait_seconds=0.2, force=True)
+    assert sent == [signal.SIGTERM, signal.SIGKILL]
+    assert result["outcome"] == "forced_exit"
+    assert result["stop_requested"] is True
+    assert result["force_requested"] is True
+    assert result["process_exited"] is True
+    assert result["clean_exit"] is False
+    assert result["status_available"] is True
+    assert result["terminal_reason"] == "user stopped"
+    assert child.wait(timeout=10) == -signal.SIGKILL
+
+
+@pytest.mark.parametrize(
+    "seconds,force,exit_after_terminal,outcome",
+    [
+        (None, False, False, "already_terminal"),
+        (0.05, False, False, "timed_out_still_alive"),
+        (0.2, True, False, "forced_exit"),
+        (2, True, True, "exited"),
+    ],
+)
+def test_terminal_publication_before_signal_skips_term(
+    tmp_path, child_run, monkeypatch, seconds, force, exit_after_terminal, outcome
+):
+    child = child_run("""
+with runtime.RunSession(config) as session:
+    print('ready', flush=True)
+    sys.stdin.readline()
+    session.request_stop()
+print('terminal-written', flush=True)
+sys.stdin.readline()
+""")
+    original_open = runtime._pidfd_open
+    original_send = runtime._pidfd_send_signal
+    sent = []
+
+    def open_and_finish(pid):
+        fd = original_open(pid)
+        child.stdin.write("finish\n")
+        child.stdin.flush()
+        assert select.select([child.stdout], [], [], 10)[0], "terminal publication timed out"
+        assert child.stdout.readline().strip() == "terminal-written"
+        assert child.poll() is None
+        if exit_after_terminal:
+            child.stdin.write("exit\n")
+            child.stdin.flush()
+        return fd
+
+    def track_signal(fd, sig):
+        sent.append(sig)
+        original_send(fd, sig)
+
+    monkeypatch.setattr(runtime, "_pidfd_open", open_and_finish)
+    monkeypatch.setattr(runtime, "_pidfd_send_signal", track_signal)
+    result = runtime.request_stop(tmp_path / "run", wait_seconds=seconds, force=force)
+    forced = force and not exit_after_terminal
+    assert result["outcome"] == outcome
+    assert result["stop_requested"] is False
+    assert result["force_requested"] is forced
+    assert result["process_exited"] is (forced or exit_after_terminal)
+    assert result["clean_exit"] is exit_after_terminal
+    assert result["terminal_reason"] == "user stopped"
+    assert sent == ([signal.SIGKILL] if forced else [])
+    if forced:
+        assert child.wait(timeout=10) == -signal.SIGKILL
+    elif exit_after_terminal:
+        assert child.wait(timeout=10) == 0
+    else:
+        assert child.poll() is None
+
+
+@pytest.mark.parametrize("change", ["owner", "run_id", "attempt_id"])
+@pytest.mark.parametrize("terminal", [False, True])
+def test_force_rechecks_attempt_ownership(tmp_path, child_run, monkeypatch, change, terminal):
     child = child_run("""
 with runtime.RunSession(config) as session:
     print('ready', flush=True)
@@ -129,7 +250,10 @@ with runtime.RunSession(config) as session:
         calls += 1
         state = original(path)
         if calls >= 3:
-            state["attempt_id"] = "replacement"
+            state[change] = "replacement"
+            if terminal:
+                state["terminal_reason"] = "user stopped"
+                state["ownership"] = "released"
         return state
 
     monkeypatch.setattr(runtime, "read_status", replaced)
@@ -209,25 +333,40 @@ def test_force_requires_bounded_wait(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "outcome,force,clean,exited,code",
+    "outcome,force,clean,exited,reason,code",
     [
-        ("stop_requested", False, False, False, 0),
-        ("exited", False, True, True, 0),
-        ("timed_out_still_alive", False, False, False, 2),
-        ("exited", False, False, True, 2),
-        ("forced_exit", True, False, True, 3),
-        ("force_requested_still_alive", True, False, False, 3),
-        ("stop_refused_status_unavailable", False, False, False, 2),
-        ("force_refused_status_unavailable", False, False, False, 2),
+        ("stop_requested", False, False, False, None, 0),
+        ("exited", False, True, True, "user stopped", 0),
+        ("timed_out_still_alive", False, False, False, None, 2),
+        ("exited", False, False, True, "unknown", 2),
+        ("forced_exit", True, False, True, "user stopped", 3),
+        ("force_requested_still_alive", True, False, False, None, 3),
+        ("stop_refused_status_unavailable", False, False, False, "unknown", 2),
+        ("force_refused_status_unavailable", False, False, False, "unknown", 2),
+    ]
+    + [
+        ("already_terminal", False, False, False, reason, code)
+        for reason, code in [
+            ("user stopped", 0),
+            ("completed", 0),
+            ("budget exhausted", 0),
+            ("failed", 2),
+            ("unknown", 2),
+            (None, 2),
+            ("unexpected", 2),
+            (..., 2),
+        ]
     ],
 )
-def test_cli_stop_outcomes(monkeypatch, capsys, outcome, force, clean, exited, code):
+def test_cli_stop_outcomes(monkeypatch, capsys, outcome, force, clean, exited, reason, code):
     result = {
         "outcome": outcome,
         "force_requested": force,
         "clean_exit": clean,
         "process_exited": exited,
     }
+    if reason is not ...:
+        result["terminal_reason"] = reason
     monkeypatch.setattr(runtime, "request_stop", lambda *a, **kw: result)
     args = cli._build_parser().parse_args(["stop", "--run-dir", "run", "--wait-seconds", "1"])
     if code:

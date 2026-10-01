@@ -439,11 +439,20 @@ def _cmd_stop(args: argparse.Namespace) -> None:
     sys.stdout.write(json.dumps(result, sort_keys=True) + "\n")
     if result["force_requested"]:
         raise SystemExit(3)
-    if result["outcome"] in {
-        "timed_out_still_alive",
-        "stop_refused_status_unavailable",
-        "force_refused_status_unavailable",
-    } or (result["process_exited"] and not result["clean_exit"]):
+    if (
+        result["outcome"]
+        in {
+            "timed_out_still_alive",
+            "stop_refused_status_unavailable",
+            "force_refused_status_unavailable",
+        }
+        or (
+            result["outcome"] == "already_terminal"
+            and result.get("terminal_reason")
+            not in {"user stopped", "completed", "budget exhausted"}
+        )
+        or (result["process_exited"] and not result["clean_exit"])
+    ):
         raise SystemExit(2)
 
 
@@ -787,6 +796,8 @@ def main() -> None:
     elif args.command == "status":
         _cmd_status(args)
     elif args.command == "stop":
+        if args.force and args.wait_seconds is None:
+            parser.error("--force requires --wait-seconds")
         _cmd_stop(args)
     elif args.command == "preflight":
         _cmd_preflight(args)

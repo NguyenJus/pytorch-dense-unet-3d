@@ -79,6 +79,11 @@ pidfd; `timed_out_still_alive` exits the stop command with code 2. An observed
 evidence exits 2. These are stop-command statuses, separate from the training
 process's exit status. Default request acceptance exits 0 without asserting a
 clean exit. `clean_exit` is terminal evidence, not a new checkpoint verification.
+If the same attempt publishes a terminal record during the pre-signal recheck,
+stop skips SIGTERM: request-only mode reports `already_terminal` with
+`stop_requested=false`, while bounded mode still observes actual process exit.
+`already_terminal` exits 0 only for `user stopped`, `completed`, or `budget exhausted`;
+failed, unknown, missing, or unrecognized terminal reasons exit 2.
 
 `--force` requires `--wait-seconds` and sends SIGKILL only after that cooperative
 wait expires, rechecking process and run/attempt identity. It uses the same pidfd,
@@ -87,7 +92,8 @@ bounds exit observation: `forced_exit` confirms exit, while
 `force_requested_still_alive` reports that even SIGKILL has not produced exit
 (for example, uninterruptible kernel I/O). Both exit the stop command with code 3
 and report `clean_exit=false`. The two process-exit waits can total twice `--wait-seconds`.
-Force does not write a terminal success or invent a checkpoint.
+The same attempt's terminal record does not prevent explicit force if teardown
+leaves its process alive. Force does not write a terminal success or invent a checkpoint.
 
 The initial run-status lookup precedes identity verification and has no deadline;
 a blocked run filesystem can prevent discovery. Once that lookup succeeds, each

@@ -280,7 +280,9 @@ def request_stop(
         def verify_target(current: dict[str, Any]) -> bool:
             if exited_now():
                 return False
-            if not same_attempt(current) or current["ownership"] != "live":
+            # Terminal publication changes the ownership label before process exit.
+            # It does not change the identity of the attempt pinned by the pidfd.
+            if not same_attempt(current):
                 raise RuntimeError("Owner changed before stop request")
             try:
                 identity = _process_identity(owner["pid"])
@@ -316,10 +318,11 @@ def request_stop(
             return report("stop_refused_status_unavailable", exited_now())
         if not verify_target(current):
             return report("exited", True)
-        if not send(signal.SIGTERM):
-            refresh()
-            return report("exited", True)
-        requested = True
+        if current.get("terminal_reason") is None:
+            if not send(signal.SIGTERM):
+                refresh()
+                return report("exited", True)
+            requested = True
         exited = wait_for_exit(wait_seconds) if wait_seconds is not None else exited_now()
         if not exited and force and wait_seconds is not None:
             current = refresh()
@@ -342,6 +345,8 @@ def request_stop(
             if exited
             else "timed_out_still_alive"
             if wait_seconds is not None
+            else "already_terminal"
+            if not requested
             else "stop_requested",
             exited,
         )
