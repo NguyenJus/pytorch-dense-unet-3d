@@ -1,10 +1,17 @@
 # Alalwan reconstruction implementation handoff
 
 Implement a defensible reconstruction of Alalwan's liver and tumor segmentation
-model that can train on a GTX 1080 with 8 GB. Preserve the strongest paper
-evidence, verify weaker assumptions, and make contradictions explicit. This is
+architecture and training recipe. Paper fidelity is the primary objective;
+GTX 1080 compatibility and an 8 GB memory limit are not requirements. Modern
+Blackwell hardware, newer compute capabilities, and execution optimizations are
+allowed, with their numerical effects validated and recorded. Preserve the
+strongest paper evidence, verify weaker assumptions, and make contradictions explicit. This is
 an implementation spec with research gates, not a claim that the paper is fully
 specified or that its scores can already be reproduced.
+
+This scope supersedes earlier hardware-certification requirements. The paper's
+GTX 1080 claim remains contextual evidence for judging reconstruction plausibility,
+not a deployment target, completion gate, or reason to require a Pascal environment.
 
 ## Starting state and scope
 
@@ -61,8 +68,9 @@ evidence cannot be silently discarded because another choice trains better.
 All weaker assumptions are assigned to implementation research here; none is
 deferred to an untracked future investigation. At a negative gate, stop the
 dependent default or fidelity claim, preserve the result, and continue independent
-work. Do not work around a refutation by silently shrinking the architecture,
-switching optimizer/loss, or adding AMP. If a dependency cannot be resolved during
+work. Do not work around a refutation by silently shrinking the architecture or
+switching optimizer/loss. Permitted execution optimizations such as AMP cannot
+serve as evidence that a contradicted reconstruction is correct. If a dependency cannot be resolved during
 implementation, retain its blocked status and create a linked issue before handoff.
 
 | Gate | Proposed interpretation and evidence | Required verification | Negative result and required disposition |
@@ -70,10 +78,10 @@ implementation, retain its blocked status and create a linked issue before hando
 | R1 Architecture | Use figure block counts `(4,12,24,36)`, growth 32, bottleneck 128, compression 0.5, standard decoder Conv3D. Strong support from Fig. 1 and §3; complete topology remains uncertain. | Inspect the figure at readable resolution; trace every channel, skip, spatial dimension, BN/ReLU and convolution. Compare text, figure, any verified author implementation, and exact parameter breakdowns. | Impossible geometry or contradictory wiring refutes that literal mapping. Revise only the contradicted choice with a written rationale. A parameter mismatch alone does not license halving depth. Do not declare the whole architecture settled just because full counts and standard decoder are implemented. |
 | R2 Input construction | Contiguous 12-slice samples are a plausible interpretation of the stated `224×224×12` input and avoid the measured whole-volume depth erasure. Sample construction is omitted. | Search primary methods/supplements/verified author code for cropping, spacing and sampling. Census per-case and per-component retention, voxel/physical-volume retention, and physical coordinates across all cases. Verify full coverage independently of target labels. | Author evidence for a different construction refutes the proposed default. Any completely erased native tumor component, omitted depth slice, or violation of the predeclared boundary-loss tolerance blocks long training on that representation. Investigate in-plane tiling/resampling explicitly; do not silently increase tumor weights or use validation labels to select samples. |
 | R3 Phase targets and transfer | Same three-class task in both phases is better supported by §3.2 than the repository's liver-only A. Best-A weight transfer is explicit; optimizer/scheduler reset is not. | Verify §3.1–3.2 and any author code for target remapping and transfer state. Test labels, nonzero tumor gradients, best selection and phase-boundary resume. Record the reset policy independently. | Explicit contrary author evidence changes the phase-target decision. If transfer-state evidence is absent, retain the current fresh-optimizer/reset policy only as a named provisional choice; do not claim exact reconstruction. |
-| R4 Epoch and LR meaning | Literal reference: SGD LR 0.01, momentum 0.5, halve every 10 epochs, A100/B1000, ten steps per epoch. “Steps/sub-epochs” is undefined and literal decay nearly freezes training. | Inspect §3.2/4.3, loss curves and any verified training code. Translate every candidate into updates, sample coverage, LR trajectory and runtime; compare against the claimed 42 h as a rough constraint, not a stopwatch target. | No primary resolution leaves semantics unresolved. A measured near-zero update with persistent tumor failure refutes the candidate as a useful long-run protocol, not necessarily the historical claim. Preserve the literal reference; block an expensive completion run. Do not adopt cosine, a floor, Adam or “ten full passes” as paper fact. Any such experiment needs a separate named configuration and rationale. |
+| R4 Epoch and LR meaning | Literal reference: SGD LR 0.01, momentum 0.5, halve every 10 epochs, A100/B1000, ten steps per epoch. “Steps/sub-epochs” is undefined and literal decay nearly freezes training. | Inspect §3.2/4.3, loss curves and any verified training code. Translate every candidate into updates, sample coverage, LR trajectory and runtime; use the claimed 42 h only as historical context with unknown batch/workload, not a throughput target for modern hardware. | No primary resolution leaves semantics unresolved. A measured near-zero update with persistent tumor failure refutes the candidate as a useful long-run protocol, not necessarily the historical claim. Preserve the literal reference; block an expensive completion run. Do not adopt cosine, a floor, Adam or “ten full passes” as paper fact. Any such experiment needs a separate named configuration and rationale. |
 | R5 Loss normalization | Eq. (2) visibly uses weighted voxel CE divided by voxel count N. Proposed implementation is unreduced weighted CE summed over valid voxels, divided by valid-voxel count; current PyTorch weighted mean divides by summed weights. | Independently transcribe Eq. (2), clarify N and label encoding, check verified author code if found. Compare loss and gradients to a manual small example, including padding. | If N or implementation evidence contradicts voxel averaging, block that default until resolved. Neither normalization should be silently compensated by an LR change. Keep normalization explicit in experiment identity. |
 | R6 Metric and reconstruction | Whole-case native-grid liver/tumor Dice is the appropriate local comparison unit. Overlap blending and empty-case conventions require verification. | Check paper §4.2 and official LiTS metric conventions. Test whole-case reconstruction, liver union with tumor, strict tumor class, empty cases and voxel weighting; record local split vs challenge-test distinction. | Patch-averaged Dice, uncovered voxels, label-informed inference, or undocumented empty-case differences invalidate a comparable case-level result. Withhold incomplete-case/cohort metrics. A local holdout score never establishes the reported hidden-test score. |
-| R7 GTX 1080 feasibility | Native FP32, batch size 1 is the conservative first target. Batch size/precision were not specified by the paper; 8 GB hardware was. | Select a Pascal-capable runtime; inspect supported architectures, then execute complete train/validation/checkpoint/resume smoke on an actual GTX 1080. Repeat peak-memory measurement with the final selected model. | Missing Pascal support refutes the runtime, not the model. An RTX profile cannot close this gate. Target OOM refutes the current memory implementation; optimize equivalent execution first, remeasure, and keep the gate open. Hardware unavailable means unverified, never “passes GTX 1080.” |
+| R7 Modern execution validity | Use the available RTX/Blackwell hardware and a supported modern runtime. AMP/BF16/FP16, TF32, compilation, fused kernels and activation checkpointing are permitted execution choices, not claims about the authors' implementation. | For selected optimizations, compare outputs/loss/gradients and short learning behavior against a controlled FP32 reference, with declared numerical tolerances; verify finite updates, BatchNorm/RNG behavior, memory use and stop/resume. Record hardware, precision and runtime. | Material numerical or learning regressions refute the chosen execution mode: fix or disable it before long training. OOM requires resource tuning that preserves the selected architecture and documented recipe. Missing GTX 1080 hardware or Pascal support is not a blocker, and no 8 GB cap is required. |
 | R8 Augmentation and sampling details | Clipping and random scale/mirror are stated; horizontal-only flip, probability 0.5, uniform in-plane scaling, center crop/zero pad, transform order, stride 12/tail overlap and uniform probability blending are repository or proposed choices. | Seek primary augmentation/sample-construction code; document axis/frame, distribution, interpolation, padding value/validity, order and seed behavior. Test paired geometry, stochastic lesion retention and deterministic inference independently. | Contrary source evidence refutes the matching default. No evidence leaves each choice provisional or unresolved. Do not call retained repository defaults verified; label-informed inference, mismatched pairs, systematic removal of small components or unaccounted padded targets blocks the candidate. |
 | R9 Framework numerics | The authors used TensorFlow/Keras; framework defaults are not a specification. Current PyTorch interpolation, BN, bias/init and optimizer details require explicit disposition. | Inventory model-internal interpolation mode/alignment, BN epsilon/momentum/update semantics, convolution bias/initialization, padding/stride rounding, SGD momentum/Nesterov/dampening/weight decay and loss reduction. Inspect source-version-specific primary docs or author code; use analytical or small cross-framework comparisons when semantics differ. | An incompatible equation/update or unsupported default refutes equivalence. Unknown author versions leave defaults provisional; choose explicit values with rationale and tests, not implicit latest-library defaults. Unresolved differences with material output/gradient effects block an exact-model claim and must be resolved or linked as issues before architecture/configuration lock. |
 
@@ -91,15 +99,15 @@ span 0–100 and its legend names DenseUNet157 rather than DenseUNet569. Verify
 these directly when recording the schedule decision. They weaken confidence in
 the reporting but do not establish a replacement epoch count or decay rule.
 
-## GTX 1080 feasibility evidence and acceptance
+## Historical hardware evidence and modern execution
 
-The paper §4.3 claims a single GTX 1080 with8 GB and about 42 h training. The old
-run used batch size 6 and recorded11,980 MiB GPU usage. That monitor figure combines
+The paper §4.3 claims a single GTX 1080 with 8 GB and about 42 h training. The old
+run used batch size 6 and recorded 11,980 MiB GPU usage. That monitor figure combines
 allocations/overhead and is not a peak live-tensor measurement.
 
 This session performed six synthetic training steps at commit `230b761`, two
 per candidate, on the RTX 5070 Ti. Input was `[1,1,12,224,224]`, FP32 with TF32
-disabled, weighted CE and SGD momentum, under an8 GiB PyTorch allocator cap.
+disabled, weighted CE and SGD momentum, under an 8 GiB PyTorch allocator cap.
 Every step had finite loss and completed without OOM. No real training run or
 checkpoint was updated.
 
@@ -110,7 +118,7 @@ checkpoint was updated.
 | Figure counts, standard Conv3D decoder | 54,674,411 | 1.749 | 2.029 |
 
 These measurements support investigating full-count candidates without assuming
-they require more than8 GB at batch size 1. They do not identify the authors' topology,
+they require more than 8 GB at batch size 1. They do not identify the authors' topology,
 reproduce training accuracy, or predict GTX 1080 throughput. Largest retained
 activation groups were high-resolution decoder blocks, especially up5/up4.
 Changing convolution operators changes saved tensors and workspaces; parameter
@@ -118,30 +126,32 @@ count alone does not predict training memory.
 
 The installed `torch 2.13.0+cu130` wheel lists `sm_75,sm_80,sm_86,sm_90,sm_100,sm_120`;
 GTX 1080 is Pascal compute capability 6.1. CUDA 13 drops Pascal offline compilation
-and library support. Do not copy this RTX environment to the GTX 1080. Select a
-verified Pascal-capable build, likely in an appropriate CUDA 12.x distribution,
-and pin Python/PyTorch/torchvision/NumPy only after compatibility checks. Do not
-guess a wheel version from the CUDA version alone.
+and library support. This explains why the measurements never established
+Pascal compatibility; that compatibility is outside the implementation goal.
+Use and pin a runtime supported by the available modern GPU after ordinary
+dependency checks. No downgrade, Pascal-specific build or GTX 1080 test is required.
 
 Sources: [NVIDIA legacy GPU capabilities](https://developer.nvidia.com/cuda/gpus/legacy),
 [CUDA 13 release notes](https://docs.nvidia.com/cuda/archive/13.0.0/cuda-toolkit-release-notes/index.html),
 [PyTorch packaging and legacy CUDA builds](https://dev-discuss.pytorch.org/t/introducing-cuda-13-2-and-deprecating-cuda-12-8-release-2-12/3337),
 [allocated versus reserved memory](https://docs.pytorch.org/docs/stable/notes/cuda.html#cuda-memory-management).
 
-The implementation gate must cover cold and warmed forward, backward, momentum
-allocation, validation and recovery/phase transitions. Record peak allocated,
-peak reserved, process/device usage, driver/library versions and convolution
-settings. Use an engineering target of no more than7 GiB peak reserved and at
-least512 MiB device headroom on an actual8 GB target; these margins are project
-acceptance criteria, not paper claims. GTX 1080 pass requires its real device
-name/capability and a complete finite update with the chosen configuration.
-RTX capped profiles remain provisional even when well below the budget.
+Validate the chosen execution configuration on the available GPU through cold
+and warmed forward, backward, momentum allocation, validation and recovery/phase
+transitions. Record peak allocated/reserved memory, device usage, runtime,
+precision and convolution settings. Choose a resource budget and headroom for
+that GPU; the historical 8 GiB profiling cap is not an implementation requirement.
 
-Prefer batch size 1 and explicit bounded CPU reconstruction buffers. Do not silently
-change mathematical architecture to fit. Gradient accumulation is not equivalent
-to a larger BatchNorm batch; mixed precision on Blackwell is not evidence of
-Pascal feasibility. Activation checkpointing is an optional engineering remedy
-only if needed and tested for gradients, RNG and BatchNorm running-state behavior.
+Modern execution improvements do not require evidence that the authors used
+them. They must preserve the selected architecture and declared training
+semantics, with R7 numerical and learning checks for the chosen modes. Keep
+precision/execution settings in experiment identity and checkpoint metadata.
+Batch size 1 FP32 is a diagnostic reference, not a mandatory production setting.
+Record microbatch, effective batch, sample exposure and update cadence when
+tuning throughput. Gradient accumulation is not equivalent to a larger BatchNorm
+batch; checkpoint recomputation must not silently double-update BatchNorm state.
+An optimizer, loss, target, topology or scheduler change remains a training-recipe
+decision subject to the research gates, not merely a Blackwell optimization.
 
 Raw scripts, JSON, cold/warm phase measurements and logs are in the original
 checkout at `models/audit-20260930/memory-profile/`. A [compact profile receipt](2026-09-30-memory-profile.json) is tracked alongside
@@ -168,9 +178,9 @@ each chosen default has a source or a clearly labeled inference. Configuration
 printing describes actual sample/update/validation counts, not just epochs.
 Blast radius: experiment semantics; no old-run rewrite or launch.
 
-### S2 Model construction and portable runtime
+### S2 Model construction and modern runtime
 
-Depends on R1/R9 dispositions; R7 remains mandatory before claiming hardware support.
+Depends on R1/R9 dispositions; validate selected execution optimizations through R7.
 Own `model/DenseUNet3d.py`, `model/building_blocks/{DenseBlock,dense_layer,
 TransitionBlock,UpsamplingBlock,ds_conv}.py`, model tests, dependency/runtime
 documentation, and model factory/loading portions of `cli.py`.
@@ -189,7 +199,7 @@ convolution groups and kernels, BN/ReLU order, architecture parameter breakdown,
 forward/backward finite gradients, explicit checkpoint model round trip, and
 incompatible graph rejection even if tensor shapes happen to match. Remove the
 3.6M tolerance band as a paper-fidelity assertion. Remeasure memory for the final
-graph; execute the actual GTX 1080 gate with a supported build.
+graph on the available GPU and validate the chosen execution modes through R7.
 
 ### S3 Spatial samples and streaming case reconstruction
 
@@ -316,18 +326,18 @@ and materially improve tumor Dice, not merely decrease aggregate loss. If it
 fails, stop progression to a long run and isolate data/targets/loss/graph/update
 problems; do not sweep optimizers until one produces a flattering curve.
 
-Complete R7 on actual GTX 1080 hardware, including safe stop/resume and the final
-model's memory profile. If unavailable, deliver CPU/RTX-verified implementation
-with GTX 1080 acceptance explicitly blocked and a linked issue; do not claim fit
-has been established. Long training additionally requires R2 retention, R4
+Complete R7 on the available GPU, including safe stop/resume, the final model's
+memory profile, and selected precision/execution checks. Do not block completion
+or create a required issue for absent GTX 1080 testing. Long training additionally requires R2 retention, R4
 schedule, full-case validation and overfit gates to pass, plus a new run name,
 recorded split/config/source identity and an authorized finite allocation.
 
 ## Required implementation handoff
 
 Deliver code/PR and checks, updated evidence ledger with every negative outcome,
-selected reconstruction configuration, model/parameter/shape manifest, Pascal
-runtime recipe and hardware result, memory/overfit diagnostics, and remaining
+selected reconstruction configuration, model/parameter/shape manifest, modern
+runtime and precision/execution settings, memory/overfit diagnostics, and remaining
 linked issues. Report local validation separately from the paper's hidden-test
-results. Do not mark the reconstruction or hardware objective complete while a
-dependent research, memory, runtime or learning gate remains open.
+results. Do not mark the paper-reconstruction objective complete while a dependent
+research or learning gate remains open. Execution checks apply to the chosen
+available hardware; GTX 1080 compatibility is not an acceptance requirement.
