@@ -1,0 +1,231 @@
+{
+  "source_commit": "230b76100e3a8af67d6d88d2b9de865b74ccd711",
+  "runtime": {
+    "python": "3.13.13 (main, May 10 2026, 19:26:54) [Clang 22.1.3 ]",
+    "torch": "2.13.0+cu130",
+    "torch_cuda_build": "13.0",
+    "cudnn": 92000,
+    "gpu": "NVIDIA GeForce RTX 5070 Ti",
+    "compute_capability": [
+      12,
+      0
+    ],
+    "total_device_bytes": 17094475776,
+    "allocator_limit_bytes": 8589934592,
+    "cudnn_benchmark": false,
+    "cudnn_deterministic": false,
+    "matmul_tf32": false,
+    "cudnn_tf32": false,
+    "CUDA_VISIBLE_DEVICES": null,
+    "PYTORCH_ALLOC_CONF": null,
+    "PYTORCH_CUDA_ALLOC_CONF": null
+  },
+  "torch_cuda_arch_list": [
+    "sm_75",
+    "sm_80",
+    "sm_86",
+    "sm_90",
+    "sm_100",
+    "sm_120"
+  ],
+  "method": {
+    "input_shape": [
+      1,
+      1,
+      12,
+      224,
+      224
+    ],
+    "dtype": "float32",
+    "loss": {
+      "name": "weighted_cross_entropy",
+      "weights": [
+        0.2,
+        1.2,
+        2.2
+      ]
+    },
+    "optimizer": {
+      "name": "SGD",
+      "lr": 0.01,
+      "momentum": 0.5,
+      "foreach": null,
+      "zero_grad_set_to_none": true
+    },
+    "steps_per_variant": 2,
+    "isolated_process_per_variant": true,
+    "amp": false,
+    "activation_checkpointing": false,
+    "cpu_offload": false,
+    "cold_forward_metadata_hooks": true,
+    "warm_forward_metadata_hooks": false
+  },
+  "limitations": [
+    "Measured on RTX 5070 Ti, not GTX 1080.",
+    "8 GiB cap covers the PyTorch allocator, not all CUDA/context allocations or target GPU kernels/workspaces.",
+    "Current skip, pool, transition, and interpolation semantics remain in every candidate.",
+    "Standard decoder is a hypothetical replacement, not an established author graph.",
+    "Two synthetic steps per candidate do not establish real-data accuracy, long-run stability, or batch-six fit.",
+    "Model initialization occurred before seeding; precise losses are not reproducible from seed alone."
+  ],
+  "variants": [
+    {
+      "variant": "reduced_ds",
+      "block_counts": [
+        2,
+        6,
+        12,
+        18
+      ],
+      "decoder_replacements": [],
+      "parameter_count": 3523643,
+      "status": "complete",
+      "steps": [
+        {
+          "index": 0,
+          "temperature": "cold",
+          "peak_allocated_bytes": 1615315456,
+          "peak_reserved_bytes": 1784676352,
+          "finite_loss": true,
+          "finite_gradients": true,
+          "duration_seconds": 1.1036897849990055,
+          "optimizer_state_bytes": 14094572
+        },
+        {
+          "index": 1,
+          "temperature": "warm",
+          "peak_allocated_bytes": 1629722112,
+          "peak_reserved_bytes": 1950351360,
+          "finite_loss": true,
+          "finite_gradients": true,
+          "duration_seconds": 0.12415720199351199,
+          "optimizer_state_bytes": 14094572
+        }
+      ]
+    },
+    {
+      "variant": "figure_counts_ds",
+      "block_counts": [
+        4,
+        12,
+        24,
+        36
+      ],
+      "decoder_replacements": [],
+      "parameter_count": 10795323,
+      "status": "complete",
+      "steps": [
+        {
+          "index": 0,
+          "temperature": "cold",
+          "peak_allocated_bytes": 1834210816,
+          "peak_reserved_bytes": 2002780160,
+          "finite_loss": true,
+          "finite_gradients": true,
+          "duration_seconds": 0.923920075991191,
+          "optimizer_state_bytes": 43181292
+        },
+        {
+          "index": 1,
+          "temperature": "warm",
+          "peak_allocated_bytes": 1878817792,
+          "peak_reserved_bytes": 2193620992,
+          "finite_loss": true,
+          "finite_gradients": true,
+          "duration_seconds": 0.27925567800411955,
+          "optimizer_state_bytes": 43181292
+        }
+      ]
+    },
+    {
+      "variant": "figure_counts_standard_decoder",
+      "block_counts": [
+        4,
+        12,
+        24,
+        36
+      ],
+      "decoder_replacements": [
+        {
+          "module": "up1.conv.0",
+          "in_channels": 2676,
+          "out_channels": 504,
+          "kernel": [
+            3,
+            3,
+            3
+          ],
+          "bias": true
+        },
+        {
+          "module": "up2.conv.0",
+          "in_channels": 1000,
+          "out_channels": 224,
+          "kernel": [
+            3,
+            3,
+            3
+          ],
+          "bias": true
+        },
+        {
+          "module": "up3.conv.0",
+          "in_channels": 448,
+          "out_channels": 192,
+          "kernel": [
+            3,
+            3,
+            3
+          ],
+          "bias": true
+        },
+        {
+          "module": "up4.conv.0",
+          "in_channels": 288,
+          "out_channels": 96,
+          "kernel": [
+            3,
+            3,
+            3
+          ],
+          "bias": true
+        },
+        {
+          "module": "up5.conv.0",
+          "in_channels": 96,
+          "out_channels": 64,
+          "kernel": [
+            3,
+            3,
+            3
+          ],
+          "bias": true
+        }
+      ],
+      "parameter_count": 54674411,
+      "status": "complete",
+      "steps": [
+        {
+          "index": 0,
+          "temperature": "cold",
+          "peak_allocated_bytes": 1658962432,
+          "peak_reserved_bytes": 1832910848,
+          "finite_loss": true,
+          "finite_gradients": true,
+          "duration_seconds": 0.8933489469927736,
+          "optimizer_state_bytes": 218697644
+        },
+        {
+          "index": 1,
+          "temperature": "warm",
+          "peak_allocated_bytes": 1878198272,
+          "peak_reserved_bytes": 2178940928,
+          "finite_loss": true,
+          "finite_gradients": true,
+          "duration_seconds": 0.30412413000885863,
+          "optimizer_state_bytes": 218697644
+        }
+      ]
+    }
+  ]
+}

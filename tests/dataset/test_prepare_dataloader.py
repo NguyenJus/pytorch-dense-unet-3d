@@ -50,6 +50,26 @@ def _config(data_dir: str) -> dict:
 
 
 class TestComposeTransformsTrainFlag:
+    def test_whole_ct_landmarks_align_in_image_and_mask(self) -> None:
+        """Thin slabs sampled by the image must survive at the same mask depth."""
+        config = _config("ignored")
+        config["dataset"]["clamp_hu"] = False
+        config["dataset"]["resize_dims"] = {"D": 12, "H": 3, "W": 4}
+        # Half-pixel centers select slices 325 and 525. Legacy floor-nearest
+        # selects 300 and 500 and drops both landmarks entirely.
+        labels = np.zeros((3, 4, 600), dtype=np.float32)
+        labels[:, :, 320:340] = 1
+        labels[:, :, 520:540] = 2
+        transforms = compose_transforms(config, train=False)
+        image = transforms["all_transforms"](labels)
+        mask = transforms["mask_transforms"](labels)
+        expected = torch.zeros(1, 12, 3, 4)
+        expected[:, 6] = 1
+        expected[:, 10] = 2
+        torch.testing.assert_close(image, expected)
+        torch.testing.assert_close(mask, expected)
+        assert set(mask.unique().tolist()) == {0.0, 1.0, 2.0}
+
     def test_val_drops_random_augmentations(self) -> None:
         """train=False -> paired_transforms contains no random augmentation."""
         config = _config("ignored")

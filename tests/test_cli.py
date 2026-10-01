@@ -638,7 +638,7 @@ def test_predict_uses_configured_intensity_preprocessing(tmp_path, monkeypatch, 
     }
     config_path = tmp_path / "config.yaml"
     _write_config(str(config_path), config)
-    data = np.arange(24, dtype=np.float32).reshape(3, 4, 2) * 10 - 100
+    data = np.arange(315, dtype=np.float32).reshape(5, 7, 9) * 2 - 100
     input_path = tmp_path / "input.nii.gz"
     nib.save(nib.Nifti1Image(data, np.eye(4)), input_path)
     captured = []
@@ -657,5 +657,54 @@ def test_predict_uses_configured_intensity_preprocessing(tmp_path, monkeypatch, 
             output=str(tmp_path / "nested" / "seg.nii.gz"),
         )
     )
-    expected = np.clip(data, -10, 10) if clamp_hu else data
-    torch.testing.assert_close(captured[0], torch.from_numpy(expected).permute(2, 0, 1)[None, None])
+    from dense_unet_3d.dataset.prepare_dataset import compose_transforms
+
+    expected = compose_transforms(config, train=False)["all_transforms"](data)
+    torch.testing.assert_close(captured[0], expected[None])
+
+
+def test_predict_restores_labels_on_half_pixel_grid(tmp_path, monkeypatch):
+    from argparse import Namespace
+
+    from dense_unet_3d import cli
+
+    config = _tiny_config(str(tmp_path))
+    config["dataset"] = {
+        "clamp_hu": False,
+        "resize_img": True,
+        "resize_dims": {"D": 12, "H": 3, "W": 4},
+    }
+    config_path = tmp_path / "config.yaml"
+    _write_config(str(config_path), config)
+    depth = 601
+    data = np.broadcast_to(np.arange(depth, dtype=np.float32), (3, 4, depth)).copy()
+    input_path = tmp_path / "input.nii.gz"
+    output_path = tmp_path / "seg.nii.gz"
+    nib.save(nib.Nifti1Image(data, np.eye(4)), input_path)
+    model_labels = torch.zeros(12, dtype=torch.long)
+    model_labels[6] = 1
+    model_labels[10] = 2
+
+    class LandmarkModel(nn.Module):
+        def forward(self, volume):
+            centers = (torch.arange(12).float() + 0.5) * depth / 12 - 0.5
+            torch.testing.assert_close(volume[0, 0, :, 0, 0], centers)
+            labels = model_labels[:, None, None].expand(12, 3, 4)
+            return torch.nn.functional.one_hot(labels, 3).permute(3, 0, 1, 2)[None].float()
+
+    monkeypatch.setattr(cli, "_load_model_from_checkpoint", lambda *_: LandmarkModel())
+    cli._cmd_predict(
+        Namespace(
+            config=str(config_path),
+            checkpoint="unused.pt",
+            input=str(input_path),
+            output=str(output_path),
+        )
+    )
+    # Each original voxel selects the nearest model center in the same grid.
+    source_indices = np.floor((np.arange(depth) + 0.5) * 12 / depth).astype(int)
+    expected = np.broadcast_to(model_labels.numpy()[source_indices], data.shape)
+    result = nib.load(output_path)
+    np.testing.assert_array_equal(result.get_fdata(), expected)
+    assert result.get_data_dtype() == np.dtype(np.int16)
+    assert set(np.unique(result.get_fdata())) == {0, 1, 2}

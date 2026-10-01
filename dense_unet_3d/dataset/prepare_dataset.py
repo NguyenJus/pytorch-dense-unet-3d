@@ -16,13 +16,17 @@ def compose_transforms(config: dict, train: bool = True) -> dict:
     """
     Composes the necessary transforms into lists based on user configuration
 
+    Image and mask resizing share a half-pixel coordinate grid. This replaces
+    the earlier corner-aligned image / floor-nearest mask sampling; runs using
+    that preprocessing require fresh training with the corrected grid.
+
     :param config:  dictionary containing configuration instructions
     :param train:   when *False*, random augmentations (RandomHorizontalFlip,
                     ScaleAndPadOrCrop) are dropped so validation/test is fully
                     deterministic; only resize/clamp/reshape remain.
     :return:        dictionary with three Compose objects:
                     - ``all_transforms``:  per-image (intensity) pipeline.
-                    - ``mask_transforms``: per-mask pipeline — NEAREST resize,
+                    - ``mask_transforms``: per-mask pipeline — nearest-exact resize,
                       no HU clamp, so integer labels are never averaged.
                     - ``paired_transforms``: random augmentations applied to
                       both image and mask together (train only).
@@ -33,7 +37,7 @@ def compose_transforms(config: dict, train: bool = True) -> dict:
     ]
 
     # Mask pipeline: same tensor/reshape steps, but NO HU clamp and a
-    # nearest-neighbour resize so labels stay integer.
+    # nearest-exact resize so labels stay integer on the image's half-pixel grid.
     mask_transforms: list[Any] = [
         ReshapeTensor(),
     ]
@@ -53,8 +57,8 @@ def compose_transforms(config: dict, train: bool = True) -> dict:
         dims = dataset_configs["resize_dims"]
         img_size = (dims["D"], dims["H"], dims["W"])
         all_transforms.append(Resize(img_size))
-        # Mask resized with nearest-neighbour to preserve integer labels.
-        mask_transforms.append(Resize(img_size, mode="nearest"))
+        # Nearest-exact shares the intensity resize's half-pixel coordinate grid.
+        mask_transforms.append(Resize(img_size, mode="nearest-exact"))
 
     # Random augmentations apply to training only (deterministic validation).
     if train:

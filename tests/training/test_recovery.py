@@ -461,6 +461,56 @@ def test_custom_preprocessing_local_rng_refused(tmp_path):
         recovery._dataset_identity(dataset)
 
 
+@pytest.mark.parametrize("transform_kind", ["resize", "scale"])
+def test_legacy_coordinate_sampling_identity_refuses_resume(tmp_path, monkeypatch, transform_kind):
+    """Unchanged transform parameters cannot hide changed sampling semantics."""
+    import nibabel as nib
+    from torchvision.transforms import Compose
+
+    from dense_unet_3d.dataset.LITSDataset import LITSDataset
+    from dense_unet_3d.dataset.transforms.ReshapeTensor import ReshapeTensor
+    from dense_unet_3d.dataset.transforms.Resize import Resize
+    from dense_unet_3d.dataset.transforms.ScaleAndPadOrCrop import ScaleAndPadOrCrop
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    for name in ("volume0.nii", "segmentation0.nii"):
+        nib.save(nib.Nifti1Image(np.ones((2, 2, 2), dtype=np.float32), np.eye(4)), data_dir / name)
+    transform = [ReshapeTensor()]
+    paired = []
+    if transform_kind == "resize":
+        transform.append(Resize((2, 2, 2)))
+    else:
+        paired.append(ScaleAndPadOrCrop((1.0, 1.0)))
+    dataset = LITSDataset(
+        [str(data_dir)],
+        transform=Compose(transform),
+        mask_transform=Compose([ReshapeTensor()]),
+        paired_transform=Compose(paired),
+    )
+    loader = DataLoader(dataset, batch_size=1)
+    cfg = config(tmp_path)
+    original_identity = recovery._transform_identity
+
+    def legacy_identity(transform):
+        identity = original_identity(transform)
+        if isinstance(identity, dict):
+            identity.pop("coordinate_grid_version", None)
+        return identity
+
+    # Reproduce the pre-fix fingerprint, with no semantic version. Stop before
+    # any training so the test never needs to recreate the old buggy transforms.
+    with monkeypatch.context() as patch:
+        patch.setattr(recovery, "_transform_identity", legacy_identity)
+        with runtime.RunSession(cfg) as session:
+            session.request_stop()
+            cascaded_driver.run_cascaded_training(
+                cfg, Tiny(), torch.device("cpu"), loader, session=session
+            )
+    with pytest.raises(ValueError, match="Incompatible"):
+        cascaded_driver.run_cascaded_training(cfg, Tiny(), torch.device("cpu"), loader, resume=True)
+
+
 @pytest.mark.parametrize("kind", ["tensor", "subset"])
 def test_custom_dataset_subclasses_refused(kind):
     from torch.utils.data import Subset

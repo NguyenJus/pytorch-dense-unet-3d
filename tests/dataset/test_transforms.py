@@ -32,7 +32,9 @@ All tests are CPU-only, seeded where needed.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import torch
+import torch.nn.functional as F
 
 from dense_unet_3d.dataset.transforms.ClampValues import ClampValues
 from dense_unet_3d.dataset.transforms.RandomHorizontalFlip import RandomHorizontalFlip
@@ -244,6 +246,20 @@ class TestScaleAndPadOrCrop:
         _image, scaled_mask = transform((image, mask))
         assert set(torch.unique(scaled_mask).tolist()) <= {0.0, 1.0, 2.0}
 
+    @pytest.mark.parametrize("scale", [0.8, 1.2])
+    @pytest.mark.parametrize("axis", [-2, -1])
+    def test_scaled_coordinate_ramp_shares_image_mask_grid(self, scale, axis) -> None:
+        """After pad/crop, nearest mask samples stay within half a source voxel."""
+        shape = (1, 2, 32, 34)
+        ramp_shape = [1, 1, 1, 1]
+        ramp_shape[axis] = shape[axis]
+        coordinates = (torch.arange(shape[axis]).float() + 1).reshape(ramp_shape).expand(shape)
+        image, mask = ScaleAndPadOrCrop((scale, scale))((coordinates, coordinates))
+        valid = image != 0  # Exclude the common zero padding when scaling down.
+        assert torch.equal(valid, mask != 0)
+        assert (image[valid] - mask[valid]).abs().max() <= 0.5 + 1e-5
+        assert torch.equal(mask, mask.round())
+
     def test_frozen_init_would_fail_randomness(self) -> None:
         """Frozen-in-__init__ scale gives identical outputs for all calls — documents the bug."""
 
@@ -351,7 +367,7 @@ class TestResize:
     def test_resize_nearest_preserves_integer_labels(self) -> None:
         """mode='nearest' must never interpolate — only original label values survive."""
         target = (4, 8, 8)
-        transform = Resize(size=target, mode="nearest")
+        transform = Resize(size=target, mode="nearest-exact")
         # A label volume with adjacent classes 1 and 2.
         img = torch.zeros(1, 2, 4, 4)
         img[:, 0] = 1
@@ -361,6 +377,21 @@ class TestResize:
         assert unique <= {0.0, 1.0, 2.0}, f"nearest resize introduced new values: {unique}"
         # No averaged 1.5 boundary value.
         assert 1.5 not in unique
+
+    @pytest.mark.parametrize("depth", [600, 601])
+    def test_whole_ct_depth_ramp_uses_common_half_pixel_grid(self, depth) -> None:
+        """The old 600->12 grid pair could disagree by 49 original slices."""
+        ramp = torch.arange(depth).float().reshape(1, depth, 1, 1)
+        image = Resize((12, 1, 1))(ramp).flatten()
+        mask = Resize((12, 1, 1), mode="nearest-exact")(ramp).flatten()
+        centers = (torch.arange(12).float() + 0.5) * depth / 12 - 0.5
+        torch.testing.assert_close(image, centers)
+        torch.testing.assert_close(mask, (centers + 0.5).floor())
+        assert (image - mask).abs().max() <= 0.5
+
+        old_image = F.interpolate(ramp[None], (12, 1, 1), mode="trilinear", align_corners=True)
+        old_mask = F.interpolate(ramp[None], (12, 1, 1), mode="nearest")
+        assert (old_image - old_mask).abs().max() >= 49
 
     def test_resize_default_mode_is_trilinear(self) -> None:
         """Default mode stays trilinear (interpolates), preserving prior behaviour."""
