@@ -26,6 +26,8 @@ def sampling_mode(config: dict) -> str:
         raise ValueError(
             f"unknown dataset.sampling {mode!r}; expected one of {sorted(SUPPORTED_SAMPLING)}"
         )
+    if dataset.get("inplane_representation") == "native_tiles_v1" and mode != "native_slabs":
+        raise ValueError("native_tiles_v1 requires explicit dataset.sampling=native_slabs")
     return mode
 
 

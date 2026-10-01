@@ -19,7 +19,13 @@ from scipy import ndimage
 
 from dense_unet_3d.dataset.LITSDataset import _case_id, discover_pairs, validate_pair
 from dense_unet_3d.dataset.prepare_dataset import _validate_split_manifest
-from dense_unet_3d.dataset.slabs import slab_starts, spatial_config
+from dense_unet_3d.dataset.slabs import (
+    categorical_tile,
+    slab_starts,
+    spatial_config,
+    tile_bounds,
+    tile_slices,
+)
 
 TOLERANCE_VERSION = "2026-09-30-exact-roundtrip-inner-shell-v1"
 
@@ -47,6 +53,28 @@ def audit_case(image_path: str, target_path: str, geometry: dict) -> dict:
     del mask
     height, width, depth = ids.shape
     model_h, model_w = geometry["height"], geometry["width"]
+    native_tiles = geometry["representation"] == "native_tiles_v1"
+    if native_tiles:
+        # Reassemble IDs with production extraction/indexing, then compare identities.
+        # Overlap is never counted twice in native/model component volumes.
+        reconstructed = np.zeros_like(ids)
+        coverage_native = np.zeros(ids.shape, dtype=np.uint8)
+        for start, valid in tile_bounds(ids.shape, geometry):
+            slices = tile_slices(start, valid)
+            tile, actual_valid = categorical_tile(ids, start, geometry)
+            if actual_valid != valid:
+                raise ValueError("native tile validity failure")
+            vd, vh, vw = valid
+            validity = np.zeros(tile.shape, dtype=bool)
+            validity[:, :vd, :vh, :vw] = True
+            if not np.all(tile.numpy()[~validity] == -100):
+                raise ValueError("native tile padding validity failure")
+            reconstructed[slices] = tile[0, :vd, :vh, :vw].numpy().transpose(1, 2, 0)
+            coverage_native[slices] += 1
+        if not np.all(coverage_native > 0) or not np.array_equal(reconstructed, ids):
+            raise ValueError("native tile component identity or coverage failure")
+        del reconstructed, coverage_native
+        model_h, model_w = height, width
     rows, columns = nearest_indices(height, model_h), nearest_indices(width, model_w)
     restore_rows, restore_columns = (
         nearest_indices(model_h, height),
@@ -64,8 +92,16 @@ def audit_case(image_path: str, target_path: str, geometry: dict) -> dict:
         sampled = plane[np.ix_(rows, columns)]
         restored = sampled[np.ix_(restore_rows, restore_columns)]
         size = (2 * rh + 1, 2 * rw + 1)
-        minimum = ndimage.minimum_filter(plane, size=size, mode="constant", cval=0)
-        maximum = ndimage.maximum_filter(plane, size=size, mode="constant", cval=0)
+        minimum = (
+            plane
+            if native_tiles
+            else ndimage.minimum_filter(plane, size=size, mode="constant", cval=0)
+        )
+        maximum = (
+            plane
+            if native_tiles
+            else ndimage.maximum_filter(plane, size=size, mode="constant", cval=0)
+        )
         core = (plane > 0) & (minimum == maximum)
         retained = (plane > 0) & (restored == plane)
         for accum, values in (
@@ -86,7 +122,11 @@ def audit_case(image_path: str, target_path: str, geometry: dict) -> dict:
     # Preserve that uncertainty rather than claiming header-verified mm values.
     mm_per_unit = {"mm": 1.0, "meter": 1000.0, "micron": 0.001, "unknown": 1.0}[spatial_units]
     native_voxel_volume = float(abs(np.linalg.det(image.affine[:3, :3]))) * mm_per_unit**3
-    model_voxel_volume = native_voxel_volume * height / model_h * width / model_w
+    model_voxel_volume = (
+        native_voxel_volume
+        if native_tiles
+        else native_voxel_volume * height / model_h * width / model_w
+    )
     components = []
     for component in range(1, count + 1):
         original = int(native_counts[component])
@@ -138,6 +178,7 @@ def audit_case(image_path: str, target_path: str, geometry: dict) -> dict:
         "model_voxel_volume_mm3": model_voxel_volume,
         "geometry_radius_hw": [rh, rw],
         "slab_starts": starts,
+        "native_tiles": sum(1 for _ in tile_bounds(ids.shape, geometry)) if native_tiles else None,
         "covered_slices": int(np.count_nonzero(coverage)),
         "native_slices": depth,
         "minimum_depth_coverage": int(coverage.min()),
@@ -162,6 +203,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--aggregate-only",
+        action="store_true",
+        help="Omit per-case paths, grids and component data from saved receipt",
+    )
     args = parser.parse_args()
     with open(args.config) as stream:
         config = yaml.safe_load(stream)
@@ -198,7 +244,15 @@ def main() -> None:
                 else None,
             }
         receipt["splits"][split] = {
-            "cases": cases,
+            "cases": [] if args.aggregate_only else cases,
+            "case_count": len(cases),
+            "original_components": len(components),
+            "erased_components": sum(c["erased"] for c in components),
+            "boundary_gate_failures": sum(not c["boundary_gate_pass"] for c in components),
+            "native_tumor_voxels": sum(c["native_tumor_voxels"] for c in cases),
+            "covered_slices": sum(c["covered_slices"] for c in cases),
+            "native_slices": sum(c["native_slices"] for c in cases),
+            "native_tiles": sum(c["native_tiles"] or 0 for c in cases),
             "size_strata": strata,
             "native_tumor_volume_mm3": sum(c["native_tumor_volume_mm3"] for c in cases),
             "model_tumor_volume_mm3": sum(c["model_tumor_volume_mm3"] for c in cases),

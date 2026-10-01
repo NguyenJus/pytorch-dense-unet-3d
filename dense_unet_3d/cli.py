@@ -142,6 +142,7 @@ def _load_model_from_checkpoint(
             configured_dataset = config.get("dataset", {})
             for key, default in (
                 ("sampling", "whole_volume"),
+                ("inplane_representation", "full_fov_resize"),
                 ("resize_img", True),
                 ("resize_dims", {"D": 12, "H": 224, "W": 224}),
                 ("clamp_hu", True),

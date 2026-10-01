@@ -18,6 +18,18 @@ def preprocessing_identity(config: dict[str, Any]) -> dict[str, Any]:
     """Identify preprocessing code semantics that configuration alone cannot express."""
     from dense_unet_3d.dataset.prepare_dataset import sampling_mode
 
+    if (
+        sampling_mode(config) == "native_slabs"
+        and config.get("dataset", {}).get("inplane_representation") == "native_tiles_v1"
+    ):
+        from dense_unet_3d.dataset.slabs import spatial_config
+
+        return {
+            "schema_version": PREPROCESSING_SCHEMA_VERSION,
+            "sampling": sampling_mode(config),
+            "coordinate_grid": "native_tiles_v1",
+            "geometry": spatial_config(config["dataset"]),
+        }
     return {
         "schema_version": PREPROCESSING_SCHEMA_VERSION,
         "sampling": sampling_mode(config),

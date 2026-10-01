@@ -1,0 +1,102 @@
+{
+  "tolerance_version": "2026-09-30-exact-roundtrip-inner-shell-v1",
+  "connectivity": 26,
+  "geometry": {
+    "window": 12,
+    "height": 224,
+    "width": 224,
+    "clamp_hu": true,
+    "hu_low": -200.0,
+    "hu_high": 250.0,
+    "representation": "native_tiles_v1",
+    "padding_target": -100,
+    "metric_convention": "medpy022_empty_zero",
+    "overlap": "uniform_probability_mean",
+    "image_interpolation": "none",
+    "mask_interpolation": "none",
+    "sampling": "native_slabs",
+    "augmentation": "disabled_unresolved"
+  },
+  "augmentation": "disabled",
+  "splits": {
+    "train": {
+      "cases": [],
+      "case_count": 28,
+      "original_components": 138,
+      "erased_components": 0,
+      "boundary_gate_failures": 0,
+      "native_tumor_voxels": 2484416,
+      "covered_slices": 14918,
+      "native_slices": 14918,
+      "native_tiles": 11313,
+      "size_strata": {
+        "1-9": {
+          "components": 4,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 1.0
+        },
+        "10-99": {
+          "components": 20,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 1.0
+        },
+        "100-999": {
+          "components": 46,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 1.0
+        },
+        ">=1000": {
+          "components": 68,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 1.0
+        }
+      },
+      "native_tumor_volume_mm3": 1484286.3650748685,
+      "model_tumor_volume_mm3": 1484286.3650748685,
+      "native_retained_tumor_volume_mm3": 1484286.3650748685,
+      "gate_pass": true
+    },
+    "validation": {
+      "cases": [],
+      "case_count": 98,
+      "original_components": 731,
+      "erased_components": 0,
+      "boundary_gate_failures": 0,
+      "native_tumor_voxels": 15791080,
+      "covered_slices": 42518,
+      "native_slices": 42518,
+      "native_tiles": 32292,
+      "size_strata": {
+        "1-9": {
+          "components": 32,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 1.0
+        },
+        "10-99": {
+          "components": 62,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 1.0
+        },
+        "100-999": {
+          "components": 299,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 1.0
+        },
+        ">=1000": {
+          "components": 338,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 1.0
+        }
+      },
+      "native_tumor_volume_mm3": 8283868.401502602,
+      "model_tumor_volume_mm3": 8283868.401502602,
+      "native_retained_tumor_volume_mm3": 8283868.401502602,
+      "gate_pass": true
+    }
+  },
+  "gate_pass": true,
+  "exit_code": 0,
+  "status": "deterministic_native_tile_retention_pass_learning_fov_open",
+  "physical_units_disposition": "Source-unit audit on the identical fixed split: 106 headers declare mm; 20 omit spatial units. For those 20, absolute mm3 provisionally assumes LiTS millimeter provenance. Exact native retention and coverage gates are unit-independent.",
+  "command": "OMP_NUM_THREADS=2 PYTHONPATH=. /tmp/dense-unet-pr-ci311/bin/python scripts/census_reconstruction.py --config configs/reconstruction-native-tiles-diagnostic.yaml --aggregate-only --output /tmp/native-tile-census18.json"
+}
