@@ -1,0 +1,15 @@
+# Inspected diagnostic environment; Python 3.13.13. See runtime JSON.
+# PyTorch CUDA wheels require the official cu130 package index.
+torch==2.13.0+cu130
+torchvision==0.28.0+cu130
+numpy==2.5.3
+nibabel==5.4.2
+scipy==1.18.1
+PyYAML==6.0.3
+tqdm==4.70.1
+matplotlib==3.11.0
+pytest==9.1.1
+ruff==0.16.8
+mypy==2.3.1
+types-PyYAML==6.0.12.20260906
+types-tqdm==4.70.0.20260906

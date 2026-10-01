@@ -1,0 +1,694 @@
+#!/usr/bin/env python3
+"""Authorized bounded FP32 GPU evidence; no paper-reproduction claim or long run."""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import gc
+import hashlib
+import json
+import math
+import os
+import random
+import subprocess
+import threading
+import time
+import traceback
+from pathlib import Path
+
+import nibabel as nib
+import numpy as np
+import torch
+import yaml
+from torch.utils.data import DataLoader, TensorDataset, default_collate
+
+from dense_unet_3d.dataset.LITSDataset import _case_id
+from dense_unet_3d.dataset.slabs import NativeSlabDataset
+from dense_unet_3d.model.config import build_model, model_metadata
+from dense_unet_3d.training import cascaded_driver as driver
+from dense_unet_3d.training.cascaded_driver import run_cascaded_training
+from dense_unet_3d.training.experiment import configure_execution
+from dense_unet_3d.training.loss import get_criterion
+from dense_unet_3d.training.runtime import RunSession, atomic_json
+from dense_unet_3d.training.train import get_optimizer, get_scheduler, unpack_training_batch
+
+
+def sha(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        while block := stream.read(8 * 1024 * 1024):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def seed():
+    random.seed(731)
+    np.random.seed(731)
+    torch.manual_seed(731)
+    if torch.cuda.is_initialized():
+        torch.cuda.manual_seed_all(731)
+
+
+def memory():
+    torch.cuda.synchronize()
+    used, total = torch.cuda.mem_get_info()
+    return {
+        "allocated_bytes": torch.cuda.memory_allocated(),
+        "reserved_bytes": torch.cuda.memory_reserved(),
+        "peak_allocated_bytes": torch.cuda.max_memory_allocated(),
+        "peak_reserved_bytes": torch.cuda.max_memory_reserved(),
+        "device_used_bytes": total - used,
+        "device_total_bytes": total,
+    }
+
+
+def bn_state(model):
+    return {
+        k: v.detach().clone()
+        for k, v in model.state_dict().items()
+        if k.endswith(("running_mean", "running_var", "num_batches_tracked"))
+    }
+
+
+def counters(model):
+    return {k: int(v) for k, v in model.state_dict().items() if k.endswith("num_batches_tracked")}
+
+
+def metrics(logits, target, loss):
+    prediction = logits.argmax(1)
+    valid = target != -100
+    predicted = (prediction == 2) & valid
+    tumor = target == 2
+    intersection = int((predicted & tumor).sum())
+    p, t = int(predicted.sum()), int(tumor.sum())
+    return {
+        "loss": float(loss),
+        "predicted_class_counts": [int(((prediction == c) & valid).sum()) for c in range(3)],
+        "tumor_voxels": t,
+        "tumor_overlap_voxels": intersection,
+        "tumor_dice": 2 * intersection / (p + t) if p + t else 0.0,
+        "finite_logits": bool(torch.isfinite(logits).all()),
+    }
+
+
+def evaluate(model, batches, criterion):
+    model.eval()
+    before = bn_state(model)
+    rows = []
+    with torch.no_grad():
+        for batch in batches:
+            x, y = unpack_training_batch(batch, "cuda")
+            logits = model(x)
+            rows.append(metrics(logits, y, criterion(logits, y)))
+    after = bn_state(model)
+    assert all(torch.equal(before[k], after[k]) for k in before), "evaluation changed BN"
+    return {
+        "samples": rows,
+        "mean_loss": sum(r["loss"] for r in rows) / len(rows),
+        "mean_tumor_dice": sum(r["tumor_dice"] for r in rows) / len(rows),
+        "bn_preserved": True,
+        "all_finite": all(r["finite_logits"] for r in rows),
+    }
+
+
+def select_samples(config, raw):
+    dataset = NativeSlabDataset(config["pathing"]["train_img_dirs"], config["dataset"])
+    split = json.loads(Path(config["experiment"]["split_manifest"]).read_text())["case_ids"]
+    ids = [_case_id(image, "volume") for image, _ in dataset.cases]
+    assert set(ids) == set(split["train"]) and not set(ids) & set(split["validation"])
+    selected, records = [], []
+    for case, (image, target) in enumerate(dataset.cases):
+        mask = np.asanyarray(nib.load(target).dataobj)
+        assert np.isfinite(mask).all() and np.isin(mask, [0, 1, 2]).all()
+        rows = np.minimum(
+            mask.shape[0] - 1,
+            np.floor((np.arange(224) + 0.5) * mask.shape[0] / 224).astype(np.int64),
+        )
+        columns = np.minimum(
+            mask.shape[1] - 1,
+            np.floor((np.arange(224) + 0.5) * mask.shape[1] / 224).astype(np.int64),
+        )
+        for index, (source_case, start, depth) in enumerate(dataset.sample_index):
+            if source_case != case:
+                continue
+            slab = mask[np.ix_(rows, columns, np.arange(start, start + depth))]
+            if np.count_nonzero(slab == 2) / slab.size < 0.01:
+                continue
+            sample = dataset[index]
+            counts = [int((sample["target"] == c).sum()) for c in range(3)]
+            assert counts[2] / sum(counts) >= 0.01
+            selected.append(default_collate([sample]))
+            records.append(
+                {
+                    "dataset_index": index,
+                    "case_id": ids[case],
+                    "split": "train",
+                    "source_image": image,
+                    "source_target": target,
+                    "source_image_sha256": sha(image),
+                    "source_target_sha256": sha(target),
+                    "source_shape_hwd": list(mask.shape),
+                    "native_depth_bounds": [start, start + depth],
+                    "class_voxel_counts": counts,
+                    "valid_voxels": sum(counts),
+                    "tumor_fraction": counts[2] / sum(counts),
+                }
+            )
+            if len(selected) == 2:
+                break
+        del mask
+        if len(selected) == 2:
+            break
+    assert len(selected) == 2, "Fewer than two slabs satisfy predeclared tumor threshold"
+    validation = NativeSlabDataset(config["pathing"]["test_img_dirs"], config["dataset"])
+    val_ids = {_case_id(image, "volume") for image, _ in validation.cases}
+    assert val_ids == set(split["validation"]) and not val_ids & set(ids)
+    val_sample = validation[0]  # target-independent held-out eval smoke, not full-case metrics
+    torch.save(
+        {"train": selected, "validation": default_collate([val_sample])}, raw / "cached-slabs.pt"
+    )
+    return (
+        selected,
+        [default_collate([val_sample])],
+        records,
+        {
+            "case_id": val_sample["case_id"],
+            "dataset_index": 0,
+            "start": val_sample["start"],
+            "scope": "one held-out slab eval smoke only",
+        },
+    )
+
+
+def tensor_digest(value):
+    digest = hashlib.sha256()
+
+    def visit(v):
+        if isinstance(v, torch.Tensor):
+            v = v.detach().cpu().contiguous()
+            digest.update(str((str(v.dtype), tuple(v.shape))).encode())
+            digest.update(v.numpy().tobytes())
+        elif isinstance(v, np.ndarray):
+            digest.update(v.tobytes())
+        elif isinstance(v, dict):
+            for k in sorted(v, key=str):
+                digest.update(str(k).encode())
+                visit(v[k])
+        elif isinstance(v, (list, tuple)):
+            for entry in v:
+                visit(entry)
+        else:
+            digest.update(repr(v).encode())
+
+    visit(value)
+    return digest.hexdigest()
+
+
+def compare_numerically(left, right, exact=False):
+    result = {
+        "passed": True,
+        "max_abs": 0.0,
+        "max_relative": 0.0,
+        "difference_l2": 0.0,
+        "floating_elements": 0,
+        "exact_nonfloating": True,
+    }
+
+    def visit(a, b):
+        if isinstance(a, torch.Tensor):
+            assert a.shape == b.shape and a.dtype == b.dtype
+            if exact or not a.is_floating_point():
+                result["passed"] &= torch.equal(a, b)
+                result["exact_nonfloating"] &= torch.equal(a, b)
+            else:
+                delta = (a - b).double()
+                result["passed"] &= torch.allclose(a, b, atol=1e-6, rtol=1e-4)
+                result["max_abs"] = max(result["max_abs"], float(delta.abs().max()))
+                relative = delta.abs() / a.double().abs().clamp_min(1e-6)
+                result["max_relative"] = max(result["max_relative"], float(relative.max()))
+                result["difference_l2"] += float(delta.square().sum())
+                result["floating_elements"] += a.numel()
+        elif isinstance(a, np.ndarray):
+            result["passed"] &= np.array_equal(a, b)
+        elif isinstance(a, dict):
+            assert a.keys() == b.keys()
+            for key in a:
+                visit(a[key], b[key])
+        elif isinstance(a, (list, tuple)):
+            assert len(a) == len(b)
+            for x, y in zip(a, b, strict=True):
+                visit(x, y)
+        elif isinstance(a, float) and not exact:
+            difference = abs(a - b)
+            result["passed"] &= difference <= 1e-6 + 1e-4 * abs(a)
+            result["max_abs"] = max(result["max_abs"], difference)
+            result["max_relative"] = max(result["max_relative"], difference / max(abs(a), 1e-6))
+            result["difference_l2"] += difference**2
+        else:
+            result["passed"] &= a == b
+
+    visit(left, right)
+    result["difference_l2"] = result["difference_l2"] ** 0.5
+    return result
+
+
+def parity(config, batches, raw, remaining, receipt):
+    cfg = copy.deepcopy(config)
+    cfg["training"].update(
+        phase_a_epochs=1, phase_a_steps_per_epoch=2, phase_b_epochs=1, phase_b_steps_per_epoch=2
+    )
+    cfg["experiment"]["max_updates"] = 4
+    cfg["runtime"].update(wall_seconds=remaining(), budget_seconds=remaining(), recovery_every=1)
+    cfg["pathing"]["model_save_dir"] = str(raw / "parity")
+    data = TensorDataset(
+        torch.cat([b["image"] for b in batches]),
+        torch.cat([b["target"].squeeze(1) for b in batches]),
+    )
+    captures, step_counts = {}, {}
+    original_optimizer, original_criterion = driver.get_optimizer, driver.get_criterion
+
+    def measured_optimizer(model, configuration):
+        optimizer = original_optimizer(model, configuration)
+
+        def capture(_optimizer, _args, _kwargs):
+            name = cfg["pathing"]["run_name"]
+            step_counts[name] = step_counts.get(name, 0) + 1
+            receipt["updates"] += 1
+            torch.save(
+                {
+                    "outputs": captures["outputs"],
+                    "loss": captures["loss"],
+                    "gradients": {k: p.grad.detach().cpu() for k, p in model.named_parameters()},
+                },
+                raw / f"{name}-step-{step_counts[name]}.pt",
+            )
+
+        optimizer.register_step_post_hook(capture)
+        return optimizer
+
+    def measured_criterion(configuration, device=None):
+        criterion = original_criterion(configuration, device=device)
+        criterion.register_forward_hook(
+            lambda _m, _i, output: captures.update(loss=float(output.detach()))
+        )
+        return criterion
+
+    driver.get_optimizer, driver.get_criterion = measured_optimizer, measured_criterion
+
+    def setup():
+        seed()
+        model = build_model(cfg["model"])
+        model.register_forward_hook(
+            lambda _m, _i, output: captures.update(outputs=output.detach().cpu())
+        )
+        loader = DataLoader(
+            data, batch_size=1, shuffle=True, generator=torch.Generator().manual_seed(941)
+        )
+        return model, loader
+
+    compared = (
+        "model_state_dict",
+        "optimizer_state_dict",
+        "scheduler_state_dict",
+        "rng",
+        "history",
+        "best",
+        "global_step",
+        "phase_b_loaded_phase_a_state_dict",
+    )
+
+    def state_hashes(name):
+        state = torch.load(
+            raw / "parity" / name / "recovery.pt", map_location="cpu", weights_only=False
+        )
+        assert state["phase"] == "completed" and state["global_step"] == 4
+        return {k: tensor_digest(state[k]) for k in compared}
+
+    cfg["pathing"]["run_name"] = "uninterrupted"
+    model, loader = setup()
+    result = run_cascaded_training(cfg, model, torch.device("cuda"), loader)
+    expected = state_hashes("uninterrupted")
+    del model, loader, result
+    gc.collect()
+    torch.cuda.empty_cache()
+    cfg["pathing"]["run_name"] = "boundary-resume"
+    model, loader = setup()
+    with RunSession(cfg) as session:
+        original_event = session.event
+
+        def stop(kind, **fields):
+            original_event(kind, **fields)
+            if kind == "phase_transition" and fields.get("phase") == "phase_b":
+                session.request_stop()
+
+        session.event = stop
+        result = run_cascaded_training(cfg, model, torch.device("cuda"), loader, session=session)
+        session.finish(result["terminal_reason"])
+        assert result["terminal_reason"] == "user stopped" and result["global_step"] == 2
+    del model, loader, result
+    gc.collect()
+    torch.cuda.empty_cache()
+    model, loader = setup()
+    torch.rand(13)
+    random.random()
+    np.random.rand(9)
+    run_cascaded_training(cfg, model, torch.device("cuda"), loader, resume=True)
+    actual = state_hashes("boundary-resume")
+    driver.get_optimizer, driver.get_criterion = original_optimizer, original_criterion
+    expected_state = torch.load(
+        raw / "parity/uninterrupted/recovery.pt", map_location="cpu", weights_only=False
+    )
+    actual_state = torch.load(
+        raw / "parity/boundary-resume/recovery.pt", map_location="cpu", weights_only=False
+    )
+    comparison = {
+        k: compare_numerically(
+            expected_state[k],
+            actual_state[k],
+            exact=k in {"rng", "scheduler_state_dict", "global_step"},
+        )
+        for k in compared
+    }
+    del expected_state, actual_state
+    repeated = []
+    for step in range(1, 5):
+        left = torch.load(raw / f"uninterrupted-step-{step}.pt", weights_only=False)
+        right = torch.load(raw / f"boundary-resume-step-{step}.pt", weights_only=False)
+        repeated.append({k: compare_numerically(left[k], right[k]) for k in left})
+    passed = all(row["passed"] for row in comparison.values()) and all(
+        row["passed"] for step in repeated for row in step.values()
+    )
+    receipt["resume"] = {
+        "state_comparison": comparison,
+        "repeated_steps": repeated,
+        "tolerance": {"atol": 1e-6, "rtol": 1e-4},
+        "passed": passed,
+    }
+    assert passed, "Stop/resume or repeated-step numerical tolerance failed"
+    return {
+        **receipt["resume"],
+        "passed": True,
+        "updates": 8,
+        "boundary": "phase_b epoch0 after phase_a selected-weight transfer",
+        "patch_shape": [1, 1, 12, 224, 224],
+        "validation": None,
+        "state_sha256": expected,
+        "all_compared_states_bitwise_identical": actual == expected,
+        "selection_score": "constant 0 for no-validation parity only, not scientific selection",
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", default="configs/reconstruction-diagnostic.yaml")
+    parser.add_argument("--artifacts", default="models/reconstruction-20260930/gpu")
+    parser.add_argument("--report", default="docs/research/2026-09-30-gpu-diagnostics.json")
+    parser.add_argument("--continue-after-failure", action="store_true")
+    parser.add_argument("--overfit-after-replay-failure", action="store_true")
+    args = parser.parse_args()
+    raw, report_path = Path(args.artifacts), Path(args.report)
+    raw.mkdir(parents=True, exist_ok=True)
+    previous = None
+    if report_path.exists() or (raw / "allocation.json").exists():
+        if not args.continue_after_failure:
+            raise FileExistsError("Refusing to overwrite prior diagnostic evidence")
+        previous = json.loads(report_path.read_text())
+        permitted_replay_failure = (
+            args.overfit_after_replay_failure
+            and previous["status"] == "failed"
+            and previous.get("resume", {}).get("passed") is False
+            and previous["updates"] == 10
+        )
+        if previous["status"] != "failed" or (
+            previous["updates"] != 0 and not permitted_replay_failure
+        ):
+            raise ValueError(
+                "Continuation requires zero updates or explicit independent-overfit after replay failure"
+            )
+        if previous["config_sha256"] != sha(args.config):
+            prior_strict = (
+                Path(args.config).read_text().replace("deterministic: false", "deterministic: true")
+            )
+            if previous["config_sha256"] != hashlib.sha256(prior_strict.encode()).hexdigest():
+                raise ValueError(
+                    "Continuation permits only the explicitly selected deterministic flag change"
+                )
+        attempt = len(previous.get("previous_attempts", [])) + 1
+        atomic_json(raw / f"failed-attempt-{attempt}.json", previous)
+        (raw / f"failed-attempt-{attempt}.md").write_text(
+            report_path.with_suffix(".md").read_text()
+        )
+    config = yaml.safe_load(Path(args.config).read_text())
+    configure_execution(config)
+    receipt = {
+        "claim": "bounded diagnostic reconstruction candidate; not exact paper reconstruction",
+        "status": "preparing",
+        "execution": config["execution"],
+        "resolved_config": config,
+        "updates": 0,
+        "budget": {"max_updates": 90, "max_gpu_wall_seconds": 900},
+        "protocol": {
+            "selection": "first two native slabs in stable train index with >=1% tumor valid voxels",
+            "overfit_max_updates": 80,
+            "material_dice_gain": 0.10,
+            "recipe_changed": False,
+            "no_label_dependent_production_inference": True,
+        },
+        "config_sha256": sha(args.config),
+        "split_sha256": sha(config["experiment"]["split_manifest"]),
+        "source_sha256": {str(p): sha(p) for p in sorted(Path("dense_unet_3d").rglob("*.py"))},
+        "script_sha256": sha(__file__),
+        "torch": str(torch.__version__),
+        "cuda": torch.version.cuda,
+        "gpu_info": subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,driver_version,memory.total,memory.used",
+                "--format=csv,noheader",
+            ],
+            text=True,
+        ).strip(),
+    }
+    charged_seconds = previous.get("gpu_wall_seconds", 0) if previous else 0
+    if args.overfit_after_replay_failure:
+        if not previous or not permitted_replay_failure:
+            raise ValueError("Independent overfit requires the recorded failed replay attempt")
+        receipt["updates"] = previous["updates"]
+        receipt["profile"] = previous["profile"]
+        receipt["resume"] = previous["resume"]
+    receipt["previous_attempts"] = (
+        [
+            *previous.get("previous_attempts", []),
+            {
+                "status": previous["status"],
+                "updates": previous["updates"],
+                "cumulative_gpu_wall_seconds": charged_seconds,
+                "error": previous["error"],
+                "source_sha256": previous["source_sha256"],
+                "script_sha256": previous["script_sha256"],
+            },
+        ]
+        if previous
+        else []
+    )
+    started = None
+
+    def save():
+        if started is not None:
+            receipt["gpu_wall_seconds"] = charged_seconds + time.monotonic() - started
+        atomic_json(report_path, receipt)
+        atomic_json(raw / "allocation.json", receipt)
+
+    def remaining():
+        return 900 - charged_seconds - (time.monotonic() - started)
+
+    try:
+        if previous:
+            cached = torch.load(raw / "cached-slabs.pt", weights_only=False)
+            batches, val_batches = cached["train"], [cached["validation"]]
+            receipt["selected_samples"] = previous["selected_samples"]
+            receipt["validation_sample"] = previous["validation_sample"]
+        else:
+            batches, val_batches, receipt["selected_samples"], receipt["validation_sample"] = (
+                select_samples(config, raw)
+            )
+        save()
+        seed()
+        started = time.monotonic()
+        receipt["status"] = "running"
+
+        def hard_stop():
+            receipt.update(status="hard wall bound reached", remaining_gate="unfinished GPU checks")
+            save()
+            os._exit(124)
+
+        watchdog = threading.Timer(900 - charged_seconds, hard_stop)
+        watchdog.daemon = True
+        watchdog.start()
+        model = build_model(config["model"]).cuda()
+        receipt["model"] = {
+            **model_metadata(model),
+            "parameters": sum(p.numel() for p in model.parameters()),
+        }
+        criterion = get_criterion(config, "cuda")
+        optimizer = get_optimizer(model, config)
+        receipt.setdefault("profile", [])
+        for label in () if args.overfit_after_replay_failure else ("cold", "warm"):
+            model.train()
+            optimizer.zero_grad(set_to_none=True)
+            x, y = unpack_training_batch(batches[0], "cuda")
+            bn_before = counters(model)
+            stages = {}
+            receipt["active_profile"] = {"kind": label, "stages": stages}
+            for stage in ("forward", "backward", "momentum_update"):
+                torch.cuda.reset_peak_memory_stats()
+                tick = time.monotonic()
+                if stage == "forward":
+                    logits = model(x)
+                    loss = criterion(logits, y)
+                elif stage == "backward":
+                    loss.backward()
+                else:
+                    optimizer.step()
+                    receipt["updates"] += 1
+                stages[stage] = {**memory(), "seconds": time.monotonic() - tick}
+                save()
+            assert all(counters(model)[k] - n == 1 for k, n in bn_before.items())
+            assert all(
+                torch.isfinite(p).all() and torch.isfinite(p.grad).all() for p in model.parameters()
+            )
+            receipt["profile"].append(
+                {
+                    "kind": label,
+                    "stages": stages,
+                    "loss": float(loss.detach()),
+                    "finite_parameters_and_gradients": True,
+                    "bn_layers": len(bn_before),
+                    "bn_updates_per_forward": 1,
+                }
+            )
+            del logits, loss, x, y
+            save()
+        receipt.pop("active_profile", None)
+        del model, optimizer
+        gc.collect()
+        torch.cuda.empty_cache()
+        if not args.overfit_after_replay_failure:
+            receipt["resume"] = parity(config, batches, raw, remaining, receipt)
+        save()
+        gc.collect()
+        torch.cuda.empty_cache()
+        seed()
+        model = build_model(config["model"]).cuda()
+        optimizer = get_optimizer(model, config)
+        scheduler = get_scheduler(optimizer, config)
+        receipt["overfit"] = {
+            "before": evaluate(model, batches, criterion),
+            "steps": [],
+            "norm_scope": "all trainable parameters; actual parameter deltas measured after SGD",
+            "norm_parameter_count": sum(p.numel() for p in model.parameters()),
+        }
+        parameters = list(model.parameters())
+        torch.cuda.reset_peak_memory_stats()
+        for index in range(80):
+            if remaining() < 45:
+                receipt["overfit"]["stop_reason"] = "reserve 45s for final eval/report"
+                break
+            model.train()
+            optimizer.zero_grad(set_to_none=True)
+            x, y = unpack_training_batch(batches[index % len(batches)], "cuda")
+            bn_before = counters(model)
+            tick = time.monotonic()
+            logits = model(x)
+            loss = criterion(logits, y)
+            assert torch.isfinite(loss)
+            loss.backward()
+            norms = torch.stack(list(torch._foreach_norm([p.grad for p in parameters])))
+            assert torch.isfinite(norms).all()
+            gradient_l2 = float(torch.linalg.vector_norm(norms))
+            before = [p.detach().clone() for p in parameters]
+            optimizer.step()
+            receipt["updates"] += 1
+            with torch.no_grad():
+                delta = torch._foreach_sub(parameters, before)
+                delta_norms = torch.stack(list(torch._foreach_norm(delta)))
+                update_l2 = float(torch.linalg.vector_norm(delta_norms))
+            assert math.isfinite(update_l2) and update_l2 > 0
+            assert all(torch.isfinite(p).all() for p in parameters)
+            assert all(counters(model)[k] - n == 1 for k, n in bn_before.items())
+            row = {
+                "step": index + 1,
+                "sample": index % len(batches),
+                **metrics(logits.detach(), y, loss.detach()),
+                "gradient_l2": gradient_l2,
+                "actual_update_l2": update_l2,
+                "seconds": time.monotonic() - tick,
+                "learning_rate": optimizer.param_groups[0]["lr"],
+                "bn_once": True,
+            }
+            receipt["overfit"]["steps"].append(row)
+            del before, delta, delta_norms, norms, logits, loss, x, y
+            if (index + 1) % 10 == 0:
+                scheduler.step()  # original diagnostic steps_per_epoch=10; StepLR in epochs
+                receipt["overfit"]["latest_eval"] = evaluate(model, batches, criterion)
+                save()
+        receipt["overfit"]["after"] = evaluate(model, batches, criterion)
+        receipt["overfit"]["memory"] = memory()
+        initial = receipt["overfit"]["before"]["mean_tumor_dice"]
+        final = receipt["overfit"]["after"]["mean_tumor_dice"]
+        receipt["overfit"]["dice_gain"] = final - initial
+        receipt["overfit"]["passed"] = final - initial >= 0.10 and all(
+            row["tumor_overlap_voxels"] > 0 for row in receipt["overfit"]["after"]["samples"]
+        )
+        receipt["validation_eval"] = evaluate(model, val_batches, criterion)
+        receipt["long_run_gate"] = (
+            "not authorized; requires independent research/full-case gates even if diagnostics pass"
+        )
+        receipt["status"] = (
+            "passed bounded diagnostics"
+            if receipt["overfit"]["passed"] and receipt["resume"]["passed"]
+            else "failed diagnostic gates"
+        )
+        if not receipt["overfit"]["passed"]:
+            receipt["long_run_gate"] = (
+                "blocked by tumor-positive overfit; isolate data/target/loss/graph/update without recipe sweep"
+            )
+        if not receipt["resume"]["passed"]:
+            receipt["long_run_gate"] = (
+                "blocked by R7 repeated-step/resume numerical divergence; diagnostic overfit cannot clear execution gate"
+            )
+        save()
+        watchdog.cancel()
+    except BaseException as exc:
+        if torch.cuda.is_initialized():
+            try:
+                receipt["failure_memory"] = memory()
+            except RuntimeError:
+                pass
+        receipt.update(
+            status="failed",
+            error_type=type(exc).__name__,
+            error=str(exc),
+            traceback=traceback.format_exc(),
+            remaining_gate="checks after recorded failure",
+        )
+        save()
+        raise
+    finally:
+        save()
+        report_path.with_suffix(".md").write_text(
+            "# Bounded GPU diagnostics\n\n"
+            f"Status: **{receipt['status']}**. Updates: {receipt['updates']}/90. "
+            f"GPU wall allocation: {receipt.get('gpu_wall_seconds', 0):.2f}/900 seconds.\n\n"
+            "Final figure-skip candidate, FP32, TF32 disabled, cuDNN deterministic algorithms "
+            f"selected, global strict determinism={receipt['execution']['deterministic']}; "
+            "this evidence does not establish exact paper reconstruction. "
+            "See the adjacent JSON for source/config hashes, sample provenance, stage memory/runtime, "
+            "complete norms, BN checks, and managed resume state comparisons.\n\n"
+            f"Long-run gate: {receipt.get('long_run_gate', 'blocked; diagnostic checks incomplete')}.\n"
+        )
+
+
+if __name__ == "__main__":
+    main()

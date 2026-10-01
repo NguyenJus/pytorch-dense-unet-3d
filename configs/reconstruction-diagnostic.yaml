@@ -1,8 +1,5 @@
-# Gated reconstruction reference: unresolved evidence prevents training launch.
-# Use configs/historical-reference.yaml only for the named historical contract,
-# or configs/reconstruction-diagnostic.yaml for an explicitly bounded diagnostic.
 pathing:
-  run_name: figure-skip-reconstruction-reference
+  run_name: figure-skip-reconstruction-diagnostic
   model_save_dir: ./models/
   results_save_dir: ./results/
   train_img_dirs:
@@ -33,9 +30,9 @@ training:
   optimizer: SGD
   learning_rate: 0.01
   epochs: 50
-  phase_a_epochs: 100
+  phase_a_epochs: 1
   phase_a_steps_per_epoch: 10
-  phase_b_epochs: 1000
+  phase_b_epochs: 1
   phase_b_steps_per_epoch: 10
   momentum: 0.5
   use_scheduler: true
@@ -69,8 +66,8 @@ gpu:
   gpu_name: cuda:0
 experiment:
   kind: reconstruction
-  name: figure_skip_native_slabs_voxel_mean_reference
-  mode: reference
+  name: figure_skip_native_slabs_bounded_diagnostic
+  mode: diagnostic
   split_manifest: docs/research/2026-09-30-split-manifest.json
   open_gates:
   - R1
@@ -79,6 +76,7 @@ experiment:
   - R7
   - R8
   - R9
+  max_updates: 20
 model:
   name: figure_skip_reconstruction_v1
   schema_version: 1

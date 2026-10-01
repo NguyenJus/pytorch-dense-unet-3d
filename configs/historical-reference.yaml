@@ -1,17 +1,13 @@
-# Gated reconstruction reference: unresolved evidence prevents training launch.
-# Use configs/historical-reference.yaml only for the named historical contract,
-# or configs/reconstruction-diagnostic.yaml for an explicitly bounded diagnostic.
 pathing:
-  run_name: figure-skip-reconstruction-reference
+  run_name: example_run
   model_save_dir: ./models/
   results_save_dir: ./results/
   train_img_dirs:
-  - /home/justin/projects/pytorch-dense-unet-3d/data/Training_Batch1/media/nas/01_Datasets/CT/LITS/Training
-    Batch 1
-  test_img_dirs:
-  - /home/justin/projects/pytorch-dense-unet-3d/models/overnight-20260924/filtered-validation
+  - ./data/Training_Batch1/media/nas/01_Datasets/CT/LITS/Training Batch 1/
+  - ./data/Training_Batch2/media/nas/01_Datasets/CT/LITS/Training Batch 2/
+  test_img_dirs: null
 dataset:
-  batch_size: 1
+  batch_size: 3
   resize_img: true
   resize_dims:
     D: 12
@@ -21,14 +17,14 @@ dataset:
   clamp_hu_range:
     min: -200
     max: 250
-  random_hflip: false
+  random_hflip: true
   random_hflip_probability: 0.5
-  scale_img: false
+  scale_img: true
   scale_img_range:
     min: 0.8
     max: 1.2
   shuffle: true
-  sampling: native_slabs
+  sampling: whole_volume
 training:
   optimizer: SGD
   learning_rate: 0.01
@@ -47,8 +43,8 @@ training:
     background: 0.2
     liver: 1.2
     lesion: 2.2
-  phase_a_targets: three_class
-  loss_reduction: valid_voxel_mean
+  phase_a_targets: liver_only
+  loss_reduction: weighted_mean
   step_unit: minibatch_update
   phase_transfer_policy: best_weights_fresh_optimizer
   optimizer_semantics: pytorch_gradient_buffer
@@ -56,8 +52,8 @@ training:
   dampening: 0.0
   nesterov: false
 runtime:
-  wall_seconds: 900
-  budget_seconds: 900
+  wall_seconds: null
+  budget_seconds: null
   validation_every: 1
   recovery_every: 1
   heartbeat_seconds: 10
@@ -68,43 +64,34 @@ gpu:
   use_gpu: true
   gpu_name: cuda:0
 experiment:
-  kind: reconstruction
-  name: figure_skip_native_slabs_voxel_mean_reference
-  mode: reference
-  split_manifest: docs/research/2026-09-30-split-manifest.json
-  open_gates:
-  - R1
-  - R2
-  - R4
-  - R7
-  - R8
-  - R9
+  kind: historical_reference
+  name: historical_reduced_weighted_mean_liver_only
 model:
-  name: figure_skip_reconstruction_v1
+  name: historical_reduced
   schema_version: 1
-  status: diagnostic_unresolved
+  status: historical_deviation
   input_shape:
   - 1
   - 12
   - 224
   - 224
   block_counts:
-  - 4
+  - 2
+  - 6
   - 12
-  - 24
-  - 36
+  - 18
   bottlenecks:
   - 128
   - 128
   - 128
-  - 32
+  - 128
   growth: 32
   compression: 0.5
-  stem: conv7_stride2_same_upper_bn_relu
-  pool: max3_stride2_same_upper
-  transition: conv1_bn_relu_conv1_stride122
+  stem: conv7_stride2_symmetric_pad3_bn_relu
+  pool: max2_stride2_valid
+  transition: bn_conv1_conv1_stride122
   dense_order: conv1_bn_relu_depthwise3_pointwise1_bn_relu
-  decoder: conv3_bn_relu
+  decoder: depthwise3_pointwise1_bn_relu
   decoder_widths:
   - 504
   - 224
@@ -112,20 +99,16 @@ model:
   - 96
   - 64
   skips:
-  - dense_block4
   - dense_block3
   - dense_block2
   - dense_block1
   - stem
-  resize: both_trilinear_align_corners_false
+  - none
+  resize: main_only_trilinear_align_corners_true
   batch_norm:
-    eps: 0.001
-    momentum: 0.01
+    eps: 1.0e-05
+    momentum: 0.1
     running_variance: unbiased
-  initialization: glorot_uniform_keras_depthwise_fans_bias_zero
-  bias: all_convolutions
+  initialization: pytorch_conv_reset_parameters
+  bias: historical_mixed
   classifier: conv1_3_logits
-execution:
-  precision: fp32
-  tf32: false
-  deterministic: false

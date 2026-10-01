@@ -1,5 +1,15 @@
 # Architecture Decision Record — 3D-DenseUNet-569
 
+> **Historical record, superseded 2026-09-30.** The decisions below explain the
+> stopped reduced-model experiment; parameter-count fitting and claims of paper
+> fidelity are withdrawn. [R1/R9 evidence](2026-09-30-topology-evidence.md) records
+> the visually audited figure, incompatible skips/padding, DB4's printed32-channel
+> bottleneck, and unresolved numerical semantics. `historical_reduced` preserves
+> this graph for existing weights. `figure_skip_reconstruction_v1` is one explicit
+> diagnostic candidate, not an exact-paper/default lock. The tolerance-band test
+> has been replaced by an exact historical compatibility count. Current manifests
+> are in [the model manifest](2026-09-30-model-manifest.json).
+
 **Date:** 2026-06-21
 **Code:**
 `dense_unet_3d/model/DenseUNet3d.py`,

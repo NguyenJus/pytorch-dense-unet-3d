@@ -2,16 +2,16 @@
 
 ### 5 years later, reimplemented and fixed. A checkpoint and improvements will come as I find the time.
 
-A reduced-depth PyTorch reconstruction of **3D-DenseUNet-569** from
+A PyTorch investigation of **3D-DenseUNet-569** from
 [Alalwan et al., *Alexandria Engineering Journal* 60 (2021) 1231–1239][paper],
-with architectural gap-fills from [Li et al., H-DenseUNet, arXiv:1709.07330][hdense].
+preserving the historical reduced-depth implementation and an explicit diagnostic
+full-depth reconstruction. Architectural gap-fills draw from
+[Li et al., H-DenseUNet, arXiv:1709.07330][hdense].
 
 The model segments **livers (class 1) and liver lesions (class 2)** in 3D CT
 volumes from the [LiTS-2017 dataset][lits].
-It uses real dense connectivity, 3D depthwise-separable convolutions (growth
-rate 32, bottleneck 128), and a 5-level U-Net decoder.
-See [Architecture fidelity](#architecture-fidelity) for why the shipped block
-counts differ from the paper's figure.
+The two model identities differ in depth, bottlenecks and decoder operations;
+see [Architecture fidelity](#architecture-fidelity) for their exact contracts.
 
 [paper]: https://www.sciencedirect.com/science/article/pii/S1110016820305639
 [hdense]: https://arxiv.org/pdf/1709.07330.pdf
@@ -37,7 +37,7 @@ The package installs a `dense-unet-3d` console entry point.
 Copy the supplied configuration before editing dataset and output paths:
 
 ```bash
-cp dense_unet_3d/config.yaml config.yaml
+cp configs/historical-reference.yaml config.yaml
 ```
 
 Training, evaluation and inference take `--config <path/to/config.yaml>`;
@@ -96,6 +96,10 @@ Dice scores (per-case and global). Default bounds are 300 seconds including setu
 and 100 batches; override with `--wall-seconds` and `--max-batches`. Incomplete
 evaluation withholds metrics. Optional `train/resume --final-eval` also respects
 the remaining persistent training budget.
+Metadata-free historical checkpoints require the explicit
+`--allow-legacy-preprocessing` opt-in. The warning means their sampling grid is
+unknown and resulting metrics may not be comparable; known preprocessing
+mismatches remain errors.
 
 ### Predict
 
@@ -105,13 +109,15 @@ dense-unet-3d predict --config config.yaml --checkpoint <path/to/best.pt> \
 ```
 
 Runs inference on a single NIfTI volume and writes the predicted segmentation.
+The same `--allow-legacy-preprocessing` boundary applies to metadata-free
+historical checkpoints.
 
 ---
 
 ## Data setup
 
 1. Download the [LiTS-2017 dataset][lits] (131 labeled training volumes).
-2. Set `pathing.train_img_dirs` in `dense_unet_3d/config.yaml` to one or more
+2. Set `pathing.train_img_dirs` in the copied `config.yaml` to one or more
    directories holding labeled LiTS training volumes, and set
    `pathing.test_img_dirs` to separate labeled validation directories.
 3. HU values are truncated to `[−200, 250]`; volumes are resized to
@@ -124,46 +130,28 @@ create a holdout split automatically.
 
 ## Architecture fidelity
 
-This repository ships a **reduced-depth variant**, not a literally 569-layer
-model.
-The paper gives block counts (4, 12, 24, 36); the shipped implementation uses half-scale
-block counts **(2, 6, 12, 18)** — preserving the paper's 1:3:6:9 ratio —
-while retaining the paper-stated encoder hyperparameters:
+Two explicit model identities are available:
 
-- growth rate **g = 32** (authoritative, unchanged)
-- bottleneck **128** channels (authoritative, unchanged)
-- transition compression **0.5** (authoritative, unchanged)
+- `historical_reduced`: the existing (2,6,12,18) graph and DS decoder,
+  3,523,643 parameters, retained for historical weight evaluation.
+- `figure_skip_reconstruction_v1`: full (4,12,24,36) counts, standard decoder,
+  printed bottlenecks (128,128,128,32), and resized figure-source skips,
+  64,591,723 parameters. This is a diagnostic reconstruction with unresolved
+  topology/framework assumptions, not the verified author model.
 
-This achieves **3,523,643 trainable parameters**, near the paper's reported
-~3.6 M total. The ±15 % acceptance band (3.06 M–4.14 M) was chosen by this
-repository; it is not a tolerance stated in the paper.
-The paper is internally inconsistent here: its text and Table 1 report **3.6 M**,
-while Table 3 reports **36,270,875 trainable / 36,433,587 total** parameters for
-the DS-Conv model. Matching the smaller count does not establish architectural
-fidelity and does not justify the reduced block counts as a reproduction.
+The paper's 3.6M and 36.27M parameter claims conflict. The old ±15% count band
+has been removed as an acceptance test; neither graph is justified by matching
+those claims. Exact source-backed topology, epoch semantics and data retention
+remain gates. Full-FOV 224×224 resizing erases some native tumor components, so
+that representation is blocked for long training. Native in-plane tiling is an
+explicitly investigated follow-up, not a silently selected replacement.
 
-**Why not the paper's (4, 12, 24, 36)?**
-The paper reports block counts (4, 12, 24, 36), growth rate 32, and about
-3.6 M trainable parameters.
-The paper does not specify enough implementation detail to independently
-reconstruct its parameter count: its figure labels every dense-layer output as
-32 but does not state the concatenated widths, convolution bias choices, or
-decoder input widths. Under this repository's explicit DenseNet concatenation
-and decoder mapping, these reported values cannot all be reproduced together.
-With this repository's real dense concatenation, fixed bottleneck width, and
-DS-Conv decoder mapping, the full-depth variant has **10,795,323 trainable
-parameters**. That is a reconstruction result, not a count of the authors'
-TensorFlow/Keras implementation.
-Half-scale block counts (keeping g = 32) is the chosen in-band reconstruction;
-it is not evidence that the paper's original implementation used these counts.
-
-The implementation also uses DS-Conv in decoder blocks as a documented
-efficiency deviation. The paper explicitly describes DS-Conv in dense blocks,
-and Fig. 1 labels the decoder operations as Conv3D.
-
-The architecture decision record and paper audit are in
-[`docs/research/2026-06-21-denseunet569-architecture-decisions.md`](docs/research/2026-06-21-denseunet569-architecture-decisions.md)
-and [`docs/research/2026-09-23-repository-audit.md`](docs/research/2026-09-23-repository-audit.md).
+See the [implementation and evidence ledger](docs/research/2026-09-30-reconstruction-implementation.md),
+[model manifest](docs/research/2026-09-30-model-manifest.json), and
+[historical decision record](docs/research/2026-06-21-denseunet569-architecture-decisions.md).
+`dense_unet_3d/config.yaml` and `configs/reconstruction-reference.yaml` preserve
+the literal schedule but refuse launch. `configs/reconstruction-diagnostic.yaml` is a separate bounded
+engineering protocol. Historical examples below retain their original contract.
 
 ---
 
@@ -185,10 +173,12 @@ preprocessing. Earlier checkpoints are not validated against this corrected
 pipeline; retraining and real-data evaluation are still required.
 The September 30 audit additionally corrects image/mask resize coordinate grids;
 managed checkpoints made with the older grid are refused on exact resume.
-Whole-volume compression to 12 slices can still erase lesions. Phase A currently
-folds tumor into liver, an implementation choice not specified by the paper's
-two-stage training description. These remain barriers to claiming reproduced
-results; see the [training run audit](docs/research/2026-09-30-training-run-audit.md).
+Whole-volume compression to 12 slices can still erase lesions. The
+`historical_reduced` reference folds tumor into liver during Phase A, an
+implementation choice not specified by the paper's two-stage training description;
+the diagnostic reconstruction keeps all three classes in both phases. These remain
+barriers to claiming reproduced results; see the
+[training run audit](docs/research/2026-09-30-training-run-audit.md).
 
 ---
 
@@ -222,12 +212,10 @@ These phases are documented as future directions — they are **not built** in t
 current release.
 
 - **Phase 2 (owner improvements):**
-  - *Full-depth (4, 12, 24, 36) configuration* — an optional g = 32 build
-    (~10.8 M params) for users with the memory budget; this is the
-    full block-count reconstruction; its parameter total exceeds the reported
-    ~3.6 M, and its training memory requirement has not been measured.
-  - Sliding-window patch inference/training, Dice / Tversky loss, modern
-    optimizer (AdamW + cosine schedule).
+  - Resolve the diagnostic reconstruction's remaining evidence and learning gates.
+  - Native in-plane tile integration beyond the implemented native-depth slabs.
+  - Separately named Dice / Tversky loss or AdamW/cosine experiments; these are
+    not corrections to the paper recipe.
 - **Phase 3 (speculative):** open-weight finetuning from a published
   3D medical-segmentation backbone.
 

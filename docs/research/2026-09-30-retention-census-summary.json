@@ -1,0 +1,3694 @@
+{
+  "tolerance_version": "2026-09-30-exact-roundtrip-inner-shell-v1",
+  "connectivity": 26,
+  "geometry": {
+    "window": 12,
+    "height": 224,
+    "width": 224,
+    "clamp_hu": true,
+    "hu_low": -200.0,
+    "hu_high": 250.0,
+    "representation": "full_fov_resize",
+    "padding_target": -100,
+    "metric_convention": "medpy022_empty_zero",
+    "overlap": "uniform_probability_mean",
+    "image_interpolation": "trilinear_half_pixel",
+    "mask_interpolation": "nearest_exact_half_pixel",
+    "sampling": "native_slabs",
+    "augmentation": "disabled_unresolved"
+  },
+  "augmentation": "disabled",
+  "gate_pass": false,
+  "raw_receipt": "models/reconstruction-20260930/retention-census.json",
+  "raw_sha256": "b74a08acddb77b1f8597e1f3378930b7e0be468b11b7555634831385c73ec1de",
+  "exit_code": 2,
+  "splits": {
+    "train": {
+      "case_count": 28,
+      "native_components": 138,
+      "erased_components": 4,
+      "boundary_gate_failures": 0,
+      "uncovered_slices": 0,
+      "size_strata": {
+        "1-9": {
+          "components": 4,
+          "erased": 3,
+          "native_overlap_physical_retention_ratio": 0.21016948884380074
+        },
+        "10-99": {
+          "components": 20,
+          "erased": 1,
+          "native_overlap_physical_retention_ratio": 0.7931355583953276
+        },
+        "100-999": {
+          "components": 46,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 0.8784933574180169
+        },
+        ">=1000": {
+          "components": 68,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 0.9682213267980496
+        }
+      },
+      "totals": {
+        "native_voxels": 2484416,
+        "model_voxels": 475653,
+        "native_retained_voxels": 2399439,
+        "native_lost_voxels": 84977,
+        "native_volume_mm3": 1484286.3650748685,
+        "model_volume_mm3": 1485219.5548907563,
+        "native_lost_volume_mm3": 49315.6170743614,
+        "native_overlap_physical_retention_ratio": 0.9667748635069663,
+        "model_physical_volume_ratio": 1.0006287127860536
+      },
+      "cases": [
+        {
+          "case_id": "-0",
+          "source_shape_hwd": [
+            512,
+            512,
+            75
+          ],
+          "native_voxel_volume_mm3": 2.471923828125,
+          "model_voxel_volume_mm3": 12.91454081632653,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 75,
+          "native_slices": 75,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 11,
+          "retained_components": 11,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-1",
+          "source_shape_hwd": [
+            512,
+            512,
+            123
+          ],
+          "native_voxel_volume_mm3": 2.283399878070042,
+          "model_voxel_volume_mm3": 11.92959936297818,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 123,
+          "native_slices": 123,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 12,
+          "retained_components": 12,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-10",
+          "source_shape_hwd": [
+            512,
+            512,
+            501
+          ],
+          "native_voxel_volume_mm3": 0.5921783447265625,
+          "model_voxel_volume_mm3": 3.093829719387755,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 501,
+          "native_slices": 501,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 6,
+          "retained_components": 6,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-11",
+          "source_shape_hwd": [
+            512,
+            512,
+            466
+          ],
+          "native_voxel_volume_mm3": 0.451416015625,
+          "model_voxel_volume_mm3": 2.358418367346939,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 466,
+          "native_slices": 466,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 5,
+          "retained_components": 5,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-12",
+          "source_shape_hwd": [
+            512,
+            512,
+            455
+          ],
+          "native_voxel_volume_mm3": 0.4281044006347656,
+          "model_voxel_volume_mm3": 2.236627072704082,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 455,
+          "native_slices": 455,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-13",
+          "source_shape_hwd": [
+            512,
+            512,
+            605
+          ],
+          "native_voxel_volume_mm3": 0.7185211181640625,
+          "model_voxel_volume_mm3": 3.75390625,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 605,
+          "native_slices": 605,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 9,
+          "retained_components": 9,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-14",
+          "source_shape_hwd": [
+            512,
+            512,
+            588
+          ],
+          "native_voxel_volume_mm3": 0.4699745178222656,
+          "model_voxel_volume_mm3": 2.455377072704082,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 588,
+          "native_slices": 588,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 1,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-15",
+          "source_shape_hwd": [
+            512,
+            512,
+            565
+          ],
+          "native_voxel_volume_mm3": 0.4281044006347656,
+          "model_voxel_volume_mm3": 2.236627072704082,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 565,
+          "native_slices": 565,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 5,
+          "retained_components": 3,
+          "erased_components": 2,
+          "boundary_gate_failures": 0,
+          "gate_pass": false,
+          "erased_component_details": [
+            {
+              "native_component_id": 1,
+              "native_voxels": 5,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 5,
+              "inner_shell_voxels": 5,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 2.140522003173828,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 2.140522003173828,
+              "shell_tolerance_volume_mm3": 2.140522003173828,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            },
+            {
+              "native_component_id": 3,
+              "native_voxels": 12,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 12,
+              "inner_shell_voxels": 12,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 5.1372528076171875,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 5.1372528076171875,
+              "shell_tolerance_volume_mm3": 5.1372528076171875,
+              "size_stratum_native_voxels": "10-99",
+              "boundary_gate_pass": true
+            }
+          ],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-16",
+          "source_shape_hwd": [
+            512,
+            512,
+            689
+          ],
+          "native_voxel_volume_mm3": 0.39550781839352567,
+          "model_voxel_volume_mm3": 2.0663265614029096,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 689,
+          "native_slices": 689,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 10,
+          "retained_components": 10,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-17",
+          "source_shape_hwd": [
+            512,
+            512,
+            826
+          ],
+          "native_voxel_volume_mm3": 0.44299664822226026,
+          "model_voxel_volume_mm3": 2.3144314682632374,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 826,
+          "native_slices": 826,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 5,
+          "retained_components": 4,
+          "erased_components": 1,
+          "boundary_gate_failures": 0,
+          "gate_pass": false,
+          "erased_component_details": [
+            {
+              "native_component_id": 3,
+              "native_voxels": 3,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 3,
+              "inner_shell_voxels": 3,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 1.3289899446667808,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 1.3289899446667808,
+              "shell_tolerance_volume_mm3": 1.3289899446667808,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            }
+          ],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-18",
+          "source_shape_hwd": [
+            512,
+            512,
+            845
+          ],
+          "native_voxel_volume_mm3": 0.6798828226310434,
+          "model_voxel_volume_mm3": 3.5520408692560634,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 845,
+          "native_slices": 845,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 4,
+          "retained_components": 4,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-19",
+          "source_shape_hwd": [
+            512,
+            512,
+            547
+          ],
+          "native_voxel_volume_mm3": 0.45234000060077056,
+          "model_voxel_volume_mm3": 2.363245717424434,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 547,
+          "native_slices": 547,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 6,
+          "retained_components": 5,
+          "erased_components": 1,
+          "boundary_gate_failures": 0,
+          "gate_pass": false,
+          "erased_component_details": [
+            {
+              "native_component_id": 2,
+              "native_voxels": 3,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 3,
+              "inner_shell_voxels": 3,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 1.3570200018023117,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 1.3570200018023117,
+              "shell_tolerance_volume_mm3": 1.3570200018023117,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            }
+          ],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-2",
+          "source_shape_hwd": [
+            512,
+            512,
+            517
+          ],
+          "native_voxel_volume_mm3": 0.6012306213378906,
+          "model_voxel_volume_mm3": 3.141123246173469,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 517,
+          "native_slices": 517,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-20",
+          "source_shape_hwd": [
+            512,
+            512,
+            574
+          ],
+          "native_voxel_volume_mm3": 0.5154982306728471,
+          "model_voxel_volume_mm3": 2.693215245964262,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 574,
+          "native_slices": 574,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 3,
+          "retained_components": 3,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-21",
+          "source_shape_hwd": [
+            512,
+            512,
+            437
+          ],
+          "native_voxel_volume_mm3": 0.5891761779785156,
+          "model_voxel_volume_mm3": 3.078144929846939,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 437,
+          "native_slices": 437,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 5,
+          "retained_components": 5,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-22",
+          "source_shape_hwd": [
+            512,
+            512,
+            247
+          ],
+          "native_voxel_volume_mm3": 3.118511951034485,
+          "model_voxel_volume_mm3": 16.29263386662915,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 247,
+          "native_slices": 247,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-23",
+          "source_shape_hwd": [
+            512,
+            512,
+            391
+          ],
+          "native_voxel_volume_mm3": 0.5229675500777375,
+          "model_voxel_volume_mm3": 2.732238628977568,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 391,
+          "native_slices": 391,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-24",
+          "source_shape_hwd": [
+            512,
+            512,
+            276
+          ],
+          "native_voxel_volume_mm3": 0.6731929779052734,
+          "model_voxel_volume_mm3": 3.51708984375,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 276,
+          "native_slices": 276,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 1,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-25",
+          "source_shape_hwd": [
+            512,
+            512,
+            601
+          ],
+          "native_voxel_volume_mm3": 0.4124233175614336,
+          "model_voxel_volume_mm3": 2.1547014141985104,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 601,
+          "native_slices": 601,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-26",
+          "source_shape_hwd": [
+            512,
+            512,
+            668
+          ],
+          "native_voxel_volume_mm3": 0.5216781527369676,
+          "model_voxel_volume_mm3": 2.7255021857278305,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 668,
+          "native_slices": 668,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 7,
+          "retained_components": 7,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-27",
+          "source_shape_hwd": [
+            512,
+            512,
+            861
+          ],
+          "native_voxel_volume_mm3": 0.3815414363734817,
+          "model_voxel_volume_mm3": 1.9933593410532922,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 861,
+          "native_slices": 861,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 11,
+          "retained_components": 11,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-3",
+          "source_shape_hwd": [
+            512,
+            512,
+            534
+          ],
+          "native_voxel_volume_mm3": 0.4807472229003906,
+          "model_voxel_volume_mm3": 2.5116589604591835,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 534,
+          "native_slices": 534,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-4",
+          "source_shape_hwd": [
+            512,
+            512,
+            841
+          ],
+          "native_voxel_volume_mm3": 0.6513797484544335,
+          "model_voxel_volume_mm3": 3.40312684906806,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 841,
+          "native_slices": 841,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 5,
+          "retained_components": 5,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-5",
+          "source_shape_hwd": [
+            512,
+            512,
+            537
+          ],
+          "native_voxel_volume_mm3": 0.7507699617999606,
+          "model_voxel_volume_mm3": 3.9223900045059166,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 537,
+          "native_slices": 537,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-6",
+          "source_shape_hwd": [
+            512,
+            512,
+            518
+          ],
+          "native_voxel_volume_mm3": 0.7622108459472656,
+          "model_voxel_volume_mm3": 3.982162786989796,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 518,
+          "native_slices": 518,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 7,
+          "retained_components": 7,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-7",
+          "source_shape_hwd": [
+            512,
+            512,
+            541
+          ],
+          "native_voxel_volume_mm3": 0.5595741271972656,
+          "model_voxel_volume_mm3": 2.9234893176020407,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 541,
+          "native_slices": 541,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 6,
+          "retained_components": 6,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-8",
+          "source_shape_hwd": [
+            512,
+            512,
+            541
+          ],
+          "native_voxel_volume_mm3": 0.7185211181640625,
+          "model_voxel_volume_mm3": 3.75390625,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 541,
+          "native_slices": 541,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 6,
+          "retained_components": 6,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-9",
+          "source_shape_hwd": [
+            512,
+            512,
+            549
+          ],
+          "native_voxel_volume_mm3": 0.67291259765625,
+          "model_voxel_volume_mm3": 3.515625,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 549,
+          "native_slices": 549,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 6,
+          "retained_components": 6,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        }
+      ]
+    },
+    "validation": {
+      "case_count": 98,
+      "native_components": 731,
+      "erased_components": 18,
+      "boundary_gate_failures": 0,
+      "uncovered_slices": 0,
+      "size_strata": {
+        "1-9": {
+          "components": 32,
+          "erased": 18,
+          "native_overlap_physical_retention_ratio": 0.3829453044916924
+        },
+        "10-99": {
+          "components": 62,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 0.7943455773800717
+        },
+        "100-999": {
+          "components": 299,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 0.8782840615382943
+        },
+        ">=1000": {
+          "components": 338,
+          "erased": 0,
+          "native_overlap_physical_retention_ratio": 0.9733413280684439
+        }
+      },
+      "totals": {
+        "native_voxels": 15791080,
+        "model_voxels": 3022614,
+        "native_retained_voxels": 15342874,
+        "native_lost_voxels": 448206,
+        "native_volume_mm3": 8283868.401502603,
+        "model_volume_mm3": 8284592.688845158,
+        "native_lost_volume_mm3": 230270.86790436384,
+        "native_overlap_physical_retention_ratio": 0.9722024956525631,
+        "model_physical_volume_ratio": 1.0000874334679706
+      },
+      "cases": [
+        {
+          "case_id": "-100",
+          "source_shape_hwd": [
+            512,
+            512,
+            685
+          ],
+          "native_voxel_volume_mm3": 0.34223476727675006,
+          "model_voxel_volume_mm3": 1.7880020494458777,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 685,
+          "native_slices": 685,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 11,
+          "retained_components": 11,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-101",
+          "source_shape_hwd": [
+            512,
+            512,
+            683
+          ],
+          "native_voxel_volume_mm3": 0.347994607721148,
+          "model_voxel_volume_mm3": 1.8180942770737527,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 683,
+          "native_slices": 683,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 17,
+          "retained_components": 11,
+          "erased_components": 6,
+          "boundary_gate_failures": 0,
+          "gate_pass": false,
+          "erased_component_details": [
+            {
+              "native_component_id": 3,
+              "native_voxels": 1,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 1,
+              "inner_shell_voxels": 1,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.347994607721148,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.347994607721148,
+              "shell_tolerance_volume_mm3": 0.347994607721148,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            },
+            {
+              "native_component_id": 9,
+              "native_voxels": 2,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 2,
+              "inner_shell_voxels": 2,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.695989215442296,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.695989215442296,
+              "shell_tolerance_volume_mm3": 0.695989215442296,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            },
+            {
+              "native_component_id": 11,
+              "native_voxels": 1,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 1,
+              "inner_shell_voxels": 1,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.347994607721148,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.347994607721148,
+              "shell_tolerance_volume_mm3": 0.347994607721148,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            },
+            {
+              "native_component_id": 12,
+              "native_voxels": 1,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 1,
+              "inner_shell_voxels": 1,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.347994607721148,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.347994607721148,
+              "shell_tolerance_volume_mm3": 0.347994607721148,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            },
+            {
+              "native_component_id": 13,
+              "native_voxels": 1,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 1,
+              "inner_shell_voxels": 1,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.347994607721148,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.347994607721148,
+              "shell_tolerance_volume_mm3": 0.347994607721148,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            },
+            {
+              "native_component_id": 16,
+              "native_voxels": 1,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 1,
+              "inner_shell_voxels": 1,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.347994607721148,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.347994607721148,
+              "shell_tolerance_volume_mm3": 0.347994607721148,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            }
+          ],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-102",
+          "source_shape_hwd": [
+            512,
+            512,
+            677
+          ],
+          "native_voxel_volume_mm3": 0.3596508309481123,
+          "model_voxel_volume_mm3": 1.8789920963819744,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 677,
+          "native_slices": 677,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-103",
+          "source_shape_hwd": [
+            512,
+            512,
+            683
+          ],
+          "native_voxel_volume_mm3": 0.5122787388345387,
+          "model_voxel_volume_mm3": 2.676395043706978,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 683,
+          "native_slices": 683,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-104",
+          "source_shape_hwd": [
+            512,
+            512,
+            781
+          ],
+          "native_voxel_volume_mm3": 0.4879688299138194,
+          "model_voxel_volume_mm3": 2.549388172610975,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 781,
+          "native_slices": 781,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 6,
+          "retained_components": 6,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-105",
+          "source_shape_hwd": [
+            512,
+            512,
+            986
+          ],
+          "native_voxel_volume_mm3": 0.49833983526332304,
+          "model_voxel_volume_mm3": 2.6035713842328714,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 986,
+          "native_slices": 986,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-106",
+          "source_shape_hwd": [
+            512,
+            512,
+            771
+          ],
+          "native_voxel_volume_mm3": 0.4251527740766646,
+          "model_voxel_volume_mm3": 2.221206329869921,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 771,
+          "native_slices": 771,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-107",
+          "source_shape_hwd": [
+            512,
+            512,
+            771
+          ],
+          "native_voxel_volume_mm3": 0.4892192138527395,
+          "model_voxel_volume_mm3": 2.555920790740843,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 771,
+          "native_slices": 771,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 4,
+          "retained_components": 4,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-108",
+          "source_shape_hwd": [
+            512,
+            512,
+            856
+          ],
+          "native_voxel_volume_mm3": 0.4251527740766646,
+          "model_voxel_volume_mm3": 2.221206329869921,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 856,
+          "native_slices": 856,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 66,
+          "retained_components": 65,
+          "erased_components": 1,
+          "boundary_gate_failures": 0,
+          "gate_pass": false,
+          "erased_component_details": [
+            {
+              "native_component_id": 55,
+              "native_voxels": 1,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 1,
+              "inner_shell_voxels": 1,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.4251527740766646,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.4251527740766646,
+              "shell_tolerance_volume_mm3": 0.4251527740766646,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            }
+          ],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-109",
+          "source_shape_hwd": [
+            512,
+            512,
+            756
+          ],
+          "native_voxel_volume_mm3": 0.46573522091094294,
+          "model_voxel_volume_mm3": 2.433228909249008,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 756,
+          "native_slices": 756,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 1,
+          "original_components": 28,
+          "retained_components": 28,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-110",
+          "source_shape_hwd": [
+            512,
+            512,
+            816
+          ],
+          "native_voxel_volume_mm3": 0.41472003913879507,
+          "model_voxel_volume_mm3": 2.166700612643501,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 816,
+          "native_slices": 816,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 1,
+          "original_components": 17,
+          "retained_components": 17,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-111",
+          "source_shape_hwd": [
+            512,
+            512,
+            761
+          ],
+          "native_voxel_volume_mm3": 0.4892192138527395,
+          "model_voxel_volume_mm3": 2.555920790740843,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 761,
+          "native_slices": 761,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 6,
+          "retained_components": 6,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-112",
+          "source_shape_hwd": [
+            512,
+            512,
+            751
+          ],
+          "native_voxel_volume_mm3": 0.32767999023437494,
+          "model_voxel_volume_mm3": 1.7119607653061222,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 751,
+          "native_slices": 751,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 4,
+          "retained_components": 4,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-113",
+          "source_shape_hwd": [
+            512,
+            512,
+            836
+          ],
+          "native_voxel_volume_mm3": 0.4879688299138194,
+          "model_voxel_volume_mm3": 2.549388172610975,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 836,
+          "native_slices": 836,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 29,
+          "retained_components": 23,
+          "erased_components": 6,
+          "boundary_gate_failures": 0,
+          "gate_pass": false,
+          "erased_component_details": [
+            {
+              "native_component_id": 3,
+              "native_voxels": 1,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 1,
+              "inner_shell_voxels": 1,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.4879688299138194,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.4879688299138194,
+              "shell_tolerance_volume_mm3": 0.4879688299138194,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            },
+            {
+              "native_component_id": 5,
+              "native_voxels": 6,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 6,
+              "inner_shell_voxels": 6,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 2.9278129794829164,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 2.9278129794829164,
+              "shell_tolerance_volume_mm3": 2.9278129794829164,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            },
+            {
+              "native_component_id": 9,
+              "native_voxels": 2,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 2,
+              "inner_shell_voxels": 2,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.9759376598276388,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.9759376598276388,
+              "shell_tolerance_volume_mm3": 0.9759376598276388,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            },
+            {
+              "native_component_id": 12,
+              "native_voxels": 1,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 1,
+              "inner_shell_voxels": 1,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.4879688299138194,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.4879688299138194,
+              "shell_tolerance_volume_mm3": 0.4879688299138194,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            },
+            {
+              "native_component_id": 13,
+              "native_voxels": 1,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 1,
+              "inner_shell_voxels": 1,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.4879688299138194,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.4879688299138194,
+              "shell_tolerance_volume_mm3": 0.4879688299138194,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            },
+            {
+              "native_component_id": 19,
+              "native_voxels": 4,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 4,
+              "inner_shell_voxels": 4,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 1.9518753196552776,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 1.9518753196552776,
+              "shell_tolerance_volume_mm3": 1.9518753196552776,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            }
+          ],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-114",
+          "source_shape_hwd": [
+            512,
+            512,
+            846
+          ],
+          "native_voxel_volume_mm3": 0.4892192138527395,
+          "model_voxel_volume_mm3": 2.555920790740843,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 846,
+          "native_slices": 846,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-115",
+          "source_shape_hwd": [
+            512,
+            512,
+            846
+          ],
+          "native_voxel_volume_mm3": 0.45722878547229756,
+          "model_voxel_volume_mm3": 2.388787124100167,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 846,
+          "native_slices": 846,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-116",
+          "source_shape_hwd": [
+            512,
+            512,
+            908
+          ],
+          "native_voxel_volume_mm3": 0.43583373281217064,
+          "model_voxel_volume_mm3": 2.2770088897941974,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 908,
+          "native_slices": 908,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-117",
+          "source_shape_hwd": [
+            512,
+            512,
+            836
+          ],
+          "native_voxel_volume_mm3": 0.36992001329422014,
+          "model_voxel_volume_mm3": 1.9326433347616399,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 836,
+          "native_slices": 836,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 75,
+          "retained_components": 75,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-118",
+          "source_shape_hwd": [
+            512,
+            512,
+            427
+          ],
+          "native_voxel_volume_mm3": 0.8306179046630859,
+          "model_voxel_volume_mm3": 4.339554767219388,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 427,
+          "native_slices": 427,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 10,
+          "retained_components": 10,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-119",
+          "source_shape_hwd": [
+            512,
+            512,
+            461
+          ],
+          "native_voxel_volume_mm3": 1.06787109375,
+          "model_voxel_volume_mm3": 5.579081632653062,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 461,
+          "native_slices": 461,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-120",
+          "source_shape_hwd": [
+            512,
+            512,
+            424
+          ],
+          "native_voxel_volume_mm3": 0.8306179046630859,
+          "model_voxel_volume_mm3": 4.339554767219388,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 424,
+          "native_slices": 424,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 6,
+          "retained_components": 5,
+          "erased_components": 1,
+          "boundary_gate_failures": 0,
+          "gate_pass": false,
+          "erased_component_details": [
+            {
+              "native_component_id": 6,
+              "native_voxels": 3,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 3,
+              "inner_shell_voxels": 3,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 2.491853713989258,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 2.491853713989258,
+              "shell_tolerance_volume_mm3": 2.491853713989258,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            }
+          ],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-121",
+          "source_shape_hwd": [
+            512,
+            512,
+            463
+          ],
+          "native_voxel_volume_mm3": 0.9478511810302734,
+          "model_voxel_volume_mm3": 4.952038823341836,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 463,
+          "native_slices": 463,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 3,
+          "retained_components": 3,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-122",
+          "source_shape_hwd": [
+            512,
+            512,
+            422
+          ],
+          "native_voxel_volume_mm3": 0.7130184173583984,
+          "model_voxel_volume_mm3": 3.7251574457908165,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 422,
+          "native_slices": 422,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 17,
+          "retained_components": 15,
+          "erased_components": 2,
+          "boundary_gate_failures": 0,
+          "gate_pass": false,
+          "erased_component_details": [
+            {
+              "native_component_id": 12,
+              "native_voxels": 1,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 1,
+              "inner_shell_voxels": 1,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.7130184173583984,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.7130184173583984,
+              "shell_tolerance_volume_mm3": 0.7130184173583984,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            },
+            {
+              "native_component_id": 17,
+              "native_voxels": 1,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 1,
+              "inner_shell_voxels": 1,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.7130184173583984,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.7130184173583984,
+              "shell_tolerance_volume_mm3": 0.7130184173583984,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            }
+          ],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-123",
+          "source_shape_hwd": [
+            512,
+            512,
+            432
+          ],
+          "native_voxel_volume_mm3": 0.8393611907958984,
+          "model_voxel_volume_mm3": 4.385233976403061,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 432,
+          "native_slices": 432,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 1,
+          "original_components": 5,
+          "retained_components": 5,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-124",
+          "source_shape_hwd": [
+            512,
+            512,
+            407
+          ],
+          "native_voxel_volume_mm3": 0.7333602905273438,
+          "model_voxel_volume_mm3": 3.831433354591837,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 407,
+          "native_slices": 407,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 14,
+          "retained_components": 14,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-125",
+          "source_shape_hwd": [
+            512,
+            512,
+            410
+          ],
+          "native_voxel_volume_mm3": 0.7623195648193359,
+          "model_voxel_volume_mm3": 3.9827307876275513,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 410,
+          "native_slices": 410,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-126",
+          "source_shape_hwd": [
+            512,
+            512,
+            401
+          ],
+          "native_voxel_volume_mm3": 0.661468505859375,
+          "model_voxel_volume_mm3": 3.4558354591836737,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 401,
+          "native_slices": 401,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-127",
+          "source_shape_hwd": [
+            512,
+            512,
+            987
+          ],
+          "native_voxel_volume_mm3": 0.4166316915132029,
+          "model_voxel_volume_mm3": 2.1766880209669375,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 987,
+          "native_slices": 987,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-128",
+          "source_shape_hwd": [
+            512,
+            512,
+            654
+          ],
+          "native_voxel_volume_mm3": 0.4272460864740424,
+          "model_voxel_volume_mm3": 2.232142819129691,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 654,
+          "native_slices": 654,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 11,
+          "retained_components": 11,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-129",
+          "source_shape_hwd": [
+            512,
+            512,
+            338
+          ],
+          "native_voxel_volume_mm3": 0.347994607721148,
+          "model_voxel_volume_mm3": 1.8180942770737527,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 338,
+          "native_slices": 338,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 10,
+          "retained_components": 10,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-130",
+          "source_shape_hwd": [
+            512,
+            512,
+            624
+          ],
+          "native_voxel_volume_mm3": 0.3271102849566887,
+          "model_voxel_volume_mm3": 1.7089843458961695,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 624,
+          "native_slices": 624,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 1,
+          "original_components": 23,
+          "retained_components": 23,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-28",
+          "source_shape_hwd": [
+            512,
+            512,
+            129
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 129,
+          "native_slices": 129,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 7,
+          "retained_components": 7,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-29",
+          "source_shape_hwd": [
+            512,
+            512,
+            172
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 172,
+          "native_slices": 172,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-30",
+          "source_shape_hwd": [
+            512,
+            512,
+            200
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 200,
+          "native_slices": 200,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-31",
+          "source_shape_hwd": [
+            512,
+            512,
+            91
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 91,
+          "native_slices": 91,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 8,
+          "retained_components": 8,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-32",
+          "source_shape_hwd": [
+            512,
+            512,
+            139
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 139,
+          "native_slices": 139,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-33",
+          "source_shape_hwd": [
+            512,
+            512,
+            135
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 135,
+          "native_slices": 135,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 15,
+          "retained_components": 15,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-34",
+          "source_shape_hwd": [
+            512,
+            512,
+            151
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 151,
+          "native_slices": 151,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-35",
+          "source_shape_hwd": [
+            512,
+            512,
+            124
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 124,
+          "native_slices": 124,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 3,
+          "retained_components": 3,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-36",
+          "source_shape_hwd": [
+            512,
+            512,
+            111
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 111,
+          "native_slices": 111,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 1,
+          "erased_components": 1,
+          "boundary_gate_failures": 0,
+          "gate_pass": false,
+          "erased_component_details": [
+            {
+              "native_component_id": 2,
+              "native_voxels": 1,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 1,
+              "inner_shell_voxels": 1,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 1.0,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 1.0,
+              "shell_tolerance_volume_mm3": 1.0,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            }
+          ],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-37",
+          "source_shape_hwd": [
+            512,
+            512,
+            122
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 122,
+          "native_slices": 122,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 8,
+          "retained_components": 8,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-38",
+          "source_shape_hwd": [
+            512,
+            512,
+            132
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 132,
+          "native_slices": 132,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 1,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-39",
+          "source_shape_hwd": [
+            512,
+            512,
+            260
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 260,
+          "native_slices": 260,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-40",
+          "source_shape_hwd": [
+            512,
+            512,
+            122
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 122,
+          "native_slices": 122,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 17,
+          "retained_components": 17,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-41",
+          "source_shape_hwd": [
+            512,
+            512,
+            113
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 113,
+          "native_slices": 113,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-42",
+          "source_shape_hwd": [
+            512,
+            512,
+            125
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 125,
+          "native_slices": 125,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-43",
+          "source_shape_hwd": [
+            512,
+            512,
+            155
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 155,
+          "native_slices": 155,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-44",
+          "source_shape_hwd": [
+            512,
+            512,
+            119
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 119,
+          "native_slices": 119,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-45",
+          "source_shape_hwd": [
+            512,
+            512,
+            74
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 74,
+          "native_slices": 74,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-46",
+          "source_shape_hwd": [
+            512,
+            512,
+            124
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 124,
+          "native_slices": 124,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 48,
+          "retained_components": 48,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-47",
+          "source_shape_hwd": [
+            512,
+            512,
+            225
+          ],
+          "native_voxel_volume_mm3": 1.0,
+          "model_voxel_volume_mm3": 5.224489795918367,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 225,
+          "native_slices": 225,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "unknown"
+        },
+        {
+          "case_id": "-53",
+          "source_shape_hwd": [
+            512,
+            512,
+            105
+          ],
+          "native_voxel_volume_mm3": 2.8900001621246356,
+          "model_voxel_volume_mm3": 15.098776357222587,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 105,
+          "native_slices": 105,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-54",
+          "source_shape_hwd": [
+            512,
+            512,
+            96
+          ],
+          "native_voxel_volume_mm3": 3.428955078124999,
+          "model_voxel_volume_mm3": 17.914540816326525,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 96,
+          "native_slices": 96,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 1,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-55",
+          "source_shape_hwd": [
+            512,
+            512,
+            192
+          ],
+          "native_voxel_volume_mm3": 1.1089432227894136,
+          "model_voxel_volume_mm3": 5.793662551716119,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 192,
+          "native_slices": 192,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 1,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-56",
+          "source_shape_hwd": [
+            512,
+            512,
+            239
+          ],
+          "native_voxel_volume_mm3": 1.2887638052928025,
+          "model_voxel_volume_mm3": 6.7331333501011725,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 239,
+          "native_slices": 239,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-57",
+          "source_shape_hwd": [
+            512,
+            512,
+            366
+          ],
+          "native_voxel_volume_mm3": 0.61798095703125,
+          "model_voxel_volume_mm3": 3.2286352040816326,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 366,
+          "native_slices": 366,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-58",
+          "source_shape_hwd": [
+            512,
+            512,
+            212
+          ],
+          "native_voxel_volume_mm3": 0.9346014820040409,
+          "model_voxel_volume_mm3": 4.882815905980295,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 212,
+          "native_slices": 212,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 5,
+          "retained_components": 5,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-59",
+          "source_shape_hwd": [
+            512,
+            512,
+            216
+          ],
+          "native_voxel_volume_mm3": 0.9346014820040409,
+          "model_voxel_volume_mm3": 4.882815905980295,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 216,
+          "native_slices": 216,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 1,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-60",
+          "source_shape_hwd": [
+            512,
+            512,
+            244
+          ],
+          "native_voxel_volume_mm3": 1.2762523656711267,
+          "model_voxel_volume_mm3": 6.667767461465479,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 244,
+          "native_slices": 244,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-61",
+          "source_shape_hwd": [
+            512,
+            512,
+            193
+          ],
+          "native_voxel_volume_mm3": 1.435697656125399,
+          "model_voxel_volume_mm3": 7.500787754451063,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 193,
+          "native_slices": 193,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-62",
+          "source_shape_hwd": [
+            512,
+            512,
+            188
+          ],
+          "native_voxel_volume_mm3": 0.8308404497803394,
+          "model_voxel_volume_mm3": 4.34071745191361,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 188,
+          "native_slices": 188,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-63",
+          "source_shape_hwd": [
+            512,
+            512,
+            104
+          ],
+          "native_voxel_volume_mm3": 2.7397320023744243,
+          "model_voxel_volume_mm3": 14.313701889956176,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 104,
+          "native_slices": 104,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 5,
+          "retained_components": 5,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-64",
+          "source_shape_hwd": [
+            512,
+            512,
+            230
+          ],
+          "native_voxel_volume_mm3": 1.208527352661008,
+          "model_voxel_volume_mm3": 6.3139388220656745,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 230,
+          "native_slices": 230,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-65",
+          "source_shape_hwd": [
+            512,
+            512,
+            513
+          ],
+          "native_voxel_volume_mm3": 0.31208985019475216,
+          "model_voxel_volume_mm3": 1.6305102377521745,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 513,
+          "native_slices": 513,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-66",
+          "source_shape_hwd": [
+            512,
+            512,
+            86
+          ],
+          "native_voxel_volume_mm3": 2.54106776556064,
+          "model_voxel_volume_mm3": 13.275782611908651,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 86,
+          "native_slices": 86,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 5,
+          "retained_components": 5,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-67",
+          "source_shape_hwd": [
+            512,
+            512,
+            165
+          ],
+          "native_voxel_volume_mm3": 1.2635820172732795,
+          "model_voxel_volume_mm3": 6.6015713555501945,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 165,
+          "native_slices": 165,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-68",
+          "source_shape_hwd": [
+            512,
+            512,
+            266
+          ],
+          "native_voxel_volume_mm3": 1.1089161489802635,
+          "model_voxel_volume_mm3": 5.793521104876478,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 266,
+          "native_slices": 266,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-69",
+          "source_shape_hwd": [
+            512,
+            512,
+            245
+          ],
+          "native_voxel_volume_mm3": 1.136749267578125,
+          "model_voxel_volume_mm3": 5.938934948979592,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 245,
+          "native_slices": 245,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-70",
+          "source_shape_hwd": [
+            512,
+            512,
+            333
+          ],
+          "native_voxel_volume_mm3": 0.4464908852242644,
+          "model_voxel_volume_mm3": 2.3326870738247285,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 333,
+          "native_slices": 333,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 3,
+          "retained_components": 3,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-71",
+          "source_shape_hwd": [
+            512,
+            512,
+            94
+          ],
+          "native_voxel_volume_mm3": 1.549243927001953,
+          "model_voxel_volume_mm3": 8.094009088010203,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 94,
+          "native_slices": 94,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 7,
+          "retained_components": 7,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-72",
+          "source_shape_hwd": [
+            512,
+            512,
+            93
+          ],
+          "native_voxel_volume_mm3": 1.148308495758421,
+          "model_voxel_volume_mm3": 5.999326018656241,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 93,
+          "native_slices": 93,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 4,
+          "retained_components": 4,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-73",
+          "source_shape_hwd": [
+            512,
+            512,
+            121
+          ],
+          "native_voxel_volume_mm3": 3.618911743164062,
+          "model_voxel_volume_mm3": 18.906967474489793,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 121,
+          "native_slices": 121,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-74",
+          "source_shape_hwd": [
+            512,
+            512,
+            107
+          ],
+          "native_voxel_volume_mm3": 3.412800820078771,
+          "model_voxel_volume_mm3": 17.830143060003376,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 107,
+          "native_slices": 107,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-75",
+          "source_shape_hwd": [
+            512,
+            512,
+            89
+          ],
+          "native_voxel_volume_mm3": 2.8713989257812496,
+          "model_voxel_volume_mm3": 15.0015943877551,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 89,
+          "native_slices": 89,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 4,
+          "retained_components": 4,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-76",
+          "source_shape_hwd": [
+            512,
+            512,
+            168
+          ],
+          "native_voxel_volume_mm3": 1.3771074824040854,
+          "model_voxel_volume_mm3": 7.194683989702978,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 168,
+          "native_slices": 168,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 1,
+          "original_components": 10,
+          "retained_components": 10,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-77",
+          "source_shape_hwd": [
+            512,
+            512,
+            94
+          ],
+          "native_voxel_volume_mm3": 3.049805141515733,
+          "model_voxel_volume_mm3": 15.93367584138832,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 94,
+          "native_slices": 94,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-78",
+          "source_shape_hwd": [
+            512,
+            512,
+            198
+          ],
+          "native_voxel_volume_mm3": 1.5411749063061109,
+          "model_voxel_volume_mm3": 8.051852571721723,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 198,
+          "native_slices": 198,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 14,
+          "retained_components": 14,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-79",
+          "source_shape_hwd": [
+            512,
+            512,
+            147
+          ],
+          "native_voxel_volume_mm3": 1.905029296875,
+          "model_voxel_volume_mm3": 9.95280612244898,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 147,
+          "native_slices": 147,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 10,
+          "retained_components": 10,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-80",
+          "source_shape_hwd": [
+            512,
+            512,
+            217
+          ],
+          "native_voxel_volume_mm3": 0.934600830078125,
+          "model_voxel_volume_mm3": 4.8828125,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 217,
+          "native_slices": 217,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-81",
+          "source_shape_hwd": [
+            512,
+            512,
+            343
+          ],
+          "native_voxel_volume_mm3": 0.61798095703125,
+          "model_voxel_volume_mm3": 3.2286352040816326,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 343,
+          "native_slices": 343,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-82",
+          "source_shape_hwd": [
+            512,
+            512,
+            519
+          ],
+          "native_voxel_volume_mm3": 0.3128906246274709,
+          "model_voxel_volume_mm3": 1.634693875604746,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 519,
+          "native_slices": 519,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-83",
+          "source_shape_hwd": [
+            512,
+            512,
+            871
+          ],
+          "native_voxel_volume_mm3": 0.38558959304282325,
+          "model_voxel_volume_mm3": 2.0145088942645457,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 871,
+          "native_slices": 871,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 1,
+          "retained_components": 1,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-84",
+          "source_shape_hwd": [
+            512,
+            512,
+            733
+          ],
+          "native_voxel_volume_mm3": 0.4019958427634265,
+          "model_voxel_volume_mm3": 2.100223178519126,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 733,
+          "native_slices": 733,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 11,
+          "retained_components": 11,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-85",
+          "source_shape_hwd": [
+            512,
+            512,
+            630
+          ],
+          "native_voxel_volume_mm3": 0.29079439236738835,
+          "model_voxel_volume_mm3": 1.5192523356337024,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 630,
+          "native_slices": 630,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-86",
+          "source_shape_hwd": [
+            512,
+            512,
+            647
+          ],
+          "native_voxel_volume_mm3": 0.3271102849566887,
+          "model_voxel_volume_mm3": 1.7089843458961695,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 647,
+          "native_slices": 647,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 2,
+          "retained_components": 2,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-87",
+          "source_shape_hwd": [
+            512,
+            512,
+            896
+          ],
+          "native_voxel_volume_mm3": 0.5834527709042072,
+          "model_voxel_volume_mm3": 3.0482430479893274,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 896,
+          "native_slices": 896,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-88",
+          "source_shape_hwd": [
+            512,
+            512,
+            811
+          ],
+          "native_voxel_volume_mm3": 0.45722878547229756,
+          "model_voxel_volume_mm3": 2.388787124100167,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 811,
+          "native_slices": 811,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 6,
+          "retained_components": 6,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-89",
+          "source_shape_hwd": [
+            512,
+            512,
+            766
+          ],
+          "native_voxel_volume_mm3": 0.32461522962275824,
+          "model_voxel_volume_mm3": 1.6959489547637983,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 766,
+          "native_slices": 766,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-90",
+          "source_shape_hwd": [
+            512,
+            512,
+            751
+          ],
+          "native_voxel_volume_mm3": 0.4879688299138194,
+          "model_voxel_volume_mm3": 2.549388172610975,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 751,
+          "native_slices": 751,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 7,
+          "retained_components": 7,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-91",
+          "source_shape_hwd": [
+            512,
+            512,
+            751
+          ],
+          "native_voxel_volume_mm3": 0.5889311819370745,
+          "model_voxel_volume_mm3": 3.0768649505283894,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 751,
+          "native_slices": 751,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 0,
+          "retained_components": 0,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-92",
+          "source_shape_hwd": [
+            512,
+            512,
+            836
+          ],
+          "native_voxel_volume_mm3": 0.36019280946275,
+          "model_voxel_volume_mm3": 1.881823657601306,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 836,
+          "native_slices": 836,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 9,
+          "retained_components": 9,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-93",
+          "source_shape_hwd": [
+            512,
+            512,
+            696
+          ],
+          "native_voxel_volume_mm3": 0.35059520572934155,
+          "model_voxel_volume_mm3": 1.8316810748308456,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 696,
+          "native_slices": 696,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 1,
+          "original_components": 30,
+          "retained_components": 30,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-94",
+          "source_shape_hwd": [
+            512,
+            512,
+            917
+          ],
+          "native_voxel_volume_mm3": 0.4914424812548077,
+          "model_voxel_volume_mm3": 2.567536228596546,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 917,
+          "native_slices": 917,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 14,
+          "retained_components": 14,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-95",
+          "source_shape_hwd": [
+            512,
+            512,
+            841
+          ],
+          "native_voxel_volume_mm3": 0.4357151777771473,
+          "model_voxel_volume_mm3": 2.2763895002234635,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 841,
+          "native_slices": 841,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 3,
+          "retained_components": 2,
+          "erased_components": 1,
+          "boundary_gate_failures": 0,
+          "gate_pass": false,
+          "erased_component_details": [
+            {
+              "native_component_id": 2,
+              "native_voxels": 2,
+              "model_voxels": 0,
+              "native_retained_voxels": 0,
+              "native_roundtrip_voxels": 0,
+              "native_lost_voxels": 2,
+              "inner_shell_voxels": 2,
+              "core_lost_voxels": 0,
+              "erased": true,
+              "native_volume_mm3": 0.8714303555542946,
+              "model_volume_mm3": 0.0,
+              "model_physical_volume_ratio": 0.0,
+              "native_overlap_retention_ratio": 0.0,
+              "native_lost_volume_mm3": 0.8714303555542946,
+              "shell_tolerance_volume_mm3": 0.8714303555542946,
+              "size_stratum_native_voxels": "1-9",
+              "boundary_gate_pass": true
+            }
+          ],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-96",
+          "source_shape_hwd": [
+            512,
+            512,
+            722
+          ],
+          "native_voxel_volume_mm3": 0.3896591120164885,
+          "model_voxel_volume_mm3": 2.0357700546167563,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 722,
+          "native_slices": 722,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 23,
+          "retained_components": 23,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-97",
+          "source_shape_hwd": [
+            512,
+            512,
+            671
+          ],
+          "native_voxel_volume_mm3": 0.3655624327393525,
+          "model_voxel_volume_mm3": 1.9098771996178419,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 671,
+          "native_slices": 671,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 12,
+          "retained_components": 12,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-98",
+          "source_shape_hwd": [
+            512,
+            512,
+            645
+          ],
+          "native_voxel_volume_mm3": 0.37751464200846385,
+          "model_voxel_volume_mm3": 1.9723213949829947,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 645,
+          "native_slices": 645,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 17,
+          "retained_components": 17,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        },
+        {
+          "case_id": "-99",
+          "source_shape_hwd": [
+            512,
+            512,
+            629
+          ],
+          "native_voxel_volume_mm3": 0.42723637307062745,
+          "model_voxel_volume_mm3": 2.2320920715526658,
+          "geometry_radius_hw": [
+            1,
+            1
+          ],
+          "covered_slices": 629,
+          "native_slices": 629,
+          "minimum_depth_coverage": 1,
+          "maximum_depth_coverage": 2,
+          "original_components": 13,
+          "retained_components": 13,
+          "erased_components": 0,
+          "boundary_gate_failures": 0,
+          "gate_pass": true,
+          "erased_component_details": [],
+          "source_spatial_units": "mm"
+        }
+      ]
+    }
+  },
+  "verified_source_spatial_units": {
+    "mm": 106,
+    "unknown": 20
+  },
+  "physical_units_disposition": "106 headers declare mm; 20 omit spatial units. For those 20, mm is provisionally inferred from LiTS provenance. Absolute mm3 and pooled volume-weighted ratios depend on that assumption; per-case ratios and erasure/coverage gates do not."
+}

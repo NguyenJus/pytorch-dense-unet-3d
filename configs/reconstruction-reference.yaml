@@ -1,6 +1,3 @@
-# Gated reconstruction reference: unresolved evidence prevents training launch.
-# Use configs/historical-reference.yaml only for the named historical contract,
-# or configs/reconstruction-diagnostic.yaml for an explicitly bounded diagnostic.
 pathing:
   run_name: figure-skip-reconstruction-reference
   model_save_dir: ./models/

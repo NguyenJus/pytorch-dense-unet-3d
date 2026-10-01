@@ -47,7 +47,7 @@ from __future__ import annotations
 
 import os
 import warnings
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 import numpy as np
@@ -57,8 +57,14 @@ from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dense_unet_3d.training.loss import get_criterion
-from dense_unet_3d.training.train import get_optimizer, get_scheduler
+from dense_unet_3d.training.experiment import checkpoint_model_metadata, experiment_metadata
+from dense_unet_3d.training.loss import IGNORE_INDEX, get_criterion
+from dense_unet_3d.training.train import (
+    get_optimizer,
+    get_scheduler,
+    reject_unmanaged_reconstruction,
+    unpack_training_batch,
+)
 
 __all__ = [
     "save_checkpoint",
@@ -77,15 +83,58 @@ class _LiverOnlyLoader:
 
     def __init__(self, loader: DataLoader) -> None:
         self._loader = loader
+        self.dataset = getattr(loader, "dataset", None)
 
-    def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
-        for volume, segmentation in self._loader:
-            yield volume, segmentation.clamp(max=1)
+    def __iter__(self) -> Iterator[Any]:
+        for batch in self._loader:
+            if isinstance(batch, dict):
+                yield {**batch, "target": batch["target"].clamp(max=1)}
+            else:
+                volume, segmentation = batch
+                yield volume, segmentation.clamp(max=1)
+
+
+def phase_a_target_mode(config: dict[str, Any]) -> str:
+    mode = config.get("training", {}).get("phase_a_targets", "liver_only")
+    if mode not in {"liver_only", "three_class"}:
+        raise ValueError(f"Unsupported phase_a_targets: {mode!r}")
+    if mode == "liver_only" and config.get("dataset", {}).get("sampling") == "native_slabs":
+        raise ValueError("native_slabs requires three_class phase A targets")
+    return str(mode)
+
+
+def validate_phase_transfer_policy(config: dict[str, Any]) -> None:
+    policy = config.get("training", {}).get("phase_transfer_policy", "best_weights_fresh_optimizer")
+    if policy != "best_weights_fresh_optimizer":
+        raise ValueError(f"Unsupported phase_transfer_policy: {policy!r}")
+
+
+def foreground_selection_score(metrics: dict[str, float]) -> float:
+    """Select on available foreground Dice; reject nonfinite aggregate scores."""
+    values = np.array(
+        [metrics.get("liver_per_case", float("nan")), metrics.get("tumor_per_case", float("nan"))]
+    )
+    if np.all(np.isnan(values)):
+        return float("nan")
+    return float(np.nanmean(values))
 
 
 # ---------------------------------------------------------------------------
 # Checkpoint helpers
 # ---------------------------------------------------------------------------
+
+
+def validate_checkpoint_graph(checkpoint: dict[str, Any], model: nn.Module) -> None:
+    metadata = checkpoint_model_metadata(model)
+    if not metadata:
+        return
+    from dense_unet_3d.model.config import HISTORICAL, validate_model_metadata
+
+    if "model_config" not in checkpoint and metadata["model_config"]["name"] == HISTORICAL:
+        if "model_fingerprint" in checkpoint:
+            raise ValueError("Incomplete checkpoint model identity")
+        return  # Known historical Python API contract, never inferred for the new graph.
+    validate_model_metadata(checkpoint, expected_config=metadata["model_config"])
 
 
 def save_checkpoint(
@@ -96,6 +145,7 @@ def save_checkpoint(
     scheduler: optim.lr_scheduler.LRScheduler | None,
     epoch: int,
     metrics: dict[str, float],
+    config: dict[str, Any] | None = None,
 ) -> None:
     """Save a training checkpoint to *path*.
 
@@ -125,6 +175,9 @@ def save_checkpoint(
         "epoch": epoch,
         "metrics": metrics,
     }
+    ckpt.update(checkpoint_model_metadata(model))
+    if config is not None:
+        ckpt.update(experiment_metadata(config))
     from dense_unet_3d.training.runtime import atomic_checkpoint
 
     atomic_checkpoint(path, ckpt)
@@ -158,6 +211,7 @@ def load_checkpoint(
         The raw checkpoint dict (includes ``epoch``, ``metrics``, etc.).
     """
     ckpt: dict[str, Any] = torch.load(path, map_location="cpu", weights_only=False)
+    validate_checkpoint_graph(ckpt, model)
     model.load_state_dict(ckpt["model_state_dict"])
     if optimizer is not None:
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
@@ -167,7 +221,7 @@ def load_checkpoint(
 
 
 # ---------------------------------------------------------------------------
-# Internal: one epoch of training (steps_per_epoch full loops over loader)
+# Internal: one epoch of training (steps_per_epoch minibatch updates)
 # ---------------------------------------------------------------------------
 
 
@@ -176,9 +230,10 @@ def _run_epoch(
     config: dict[str, Any],
     model: nn.Module,
     device: torch.device,
-    loader: DataLoader,
+    loader: Iterable[Any],
     optimizer: optim.Optimizer,
     steps_per_epoch: int,
+    diagnostics: dict[str, Any] | None = None,
 ) -> float:
     """Run one training epoch (``steps_per_epoch`` mini-batch steps).
 
@@ -203,25 +258,46 @@ def _run_epoch(
     # rebuild it per step inside the loop.
     criterion = get_criterion(config, device=device)
 
+    if diagnostics is not None:
+        diagnostics.clear()
+        diagnostics.update(
+            class_voxel_counts=[0, 0, 0],
+            predicted_class_voxel_counts=[0, 0, 0],
+            class_weighted_ce_sums=[0.0, 0.0, 0.0],
+            tumor_positive_samples=0,
+            case_ids_available=False,
+            case_ids_seen=[],
+            tumor_positive_case_ids_seen=[],
+            unique_cases_seen=0,
+            tumor_positive_cases_seen=0,
+            valid_voxels=0,
+            samples=0,
+            updates=0,
+            gradient_l2_max=0.0,
+            sampled_parameter_update_l2_max=0.0,
+            sampled_parameter_count=0,
+        )
+        parameter_limit = config.get("training", {}).get("diagnostic_parameter_limit", 4096)
+        if type(parameter_limit) is not int or parameter_limit < 1:
+            raise ValueError("diagnostic_parameter_limit must be a positive integer")
     batches = iter(loader)
+    seen_cases: set[str] = set()
+    positive_cases: set[str] = set()
     for _ in range(steps_per_epoch):
         try:
-            volume, segmentation = next(batches)
+            batch = next(batches)
         except StopIteration:
             # Start another pass when more updates than batches are requested.
             # A second immediate StopIteration identifies an empty loader;
             # unlike ``islice(_cycling_iter(...))``, it cannot loop forever.
             batches = iter(loader)
             try:
-                volume, segmentation = next(batches)
+                batch = next(batches)
             except StopIteration as exc:
                 raise ValueError(
                     "train_loader yielded no batches, so a training step cannot run."
                 ) from exc
-        volume = volume.to(device, dtype=torch.float32)
-        if segmentation.dim() == 5:
-            segmentation = segmentation.squeeze(1)
-        segmentation = segmentation.to(device, dtype=torch.long)
+        volume, segmentation = unpack_training_batch(batch, device)
 
         optimizer.zero_grad()
         logits = model(volume)
@@ -231,7 +307,79 @@ def _run_epoch(
         loss.backward()
         if any(p.grad is not None and not torch.isfinite(p.grad).all() for p in model.parameters()):
             raise FloatingPointError("Nonfinite training gradients")
+        sampled: list[tuple[torch.Tensor, torch.Tensor]] = []
+        if diagnostics is not None:
+            grad_sq = sum(
+                float(torch.linalg.vector_norm(p.grad.detach()).item()) ** 2
+                for p in model.parameters()
+                if p.grad is not None
+            )
+            diagnostics["gradient_l2_max"] = max(diagnostics["gradient_l2_max"], grad_sq**0.5)
+            remaining = parameter_limit
+            for p in model.parameters():
+                if p.requires_grad and remaining > 0:
+                    values = p.detach().reshape(-1)[:remaining]
+                    sampled.append((p, values.clone()))
+                    remaining -= values.numel()
+            diagnostics["sampled_parameter_count"] = parameter_limit - remaining
+            with torch.no_grad():
+                per_voxel = nn.functional.cross_entropy(
+                    logits.detach(),
+                    segmentation,
+                    weight=getattr(criterion, "weight", None),
+                    ignore_index=IGNORE_INDEX,
+                    reduction="none",
+                )
+                prediction = logits.detach().argmax(dim=1)
+                valid = segmentation != IGNORE_INDEX
+                diagnostics["samples"] += segmentation.shape[0]
+                diagnostics["valid_voxels"] += int(valid.sum().item())
+                diagnostics["tumor_positive_samples"] += int(
+                    (segmentation == 2).flatten(1).any(1).sum().item()
+                )
+                if isinstance(batch, dict) and "case_id" in batch:
+                    case_ids = batch["case_id"]
+                    if (
+                        not isinstance(case_ids, (tuple, list))
+                        or len(case_ids) != segmentation.shape[0]
+                    ):
+                        raise ValueError("Collated case IDs must match the training batch")
+                    positive = (segmentation == 2).flatten(1).any(1).tolist()
+                    seen_cases.update(map(str, case_ids))
+                    positive_cases.update(
+                        str(case)
+                        for case, has_tumor in zip(case_ids, positive, strict=True)
+                        if has_tumor
+                    )
+                    diagnostics["case_ids_available"] = True
+                    diagnostics["case_ids_seen"] = sorted(seen_cases)
+                    diagnostics["tumor_positive_case_ids_seen"] = sorted(positive_cases)
+                    diagnostics["unique_cases_seen"] = len(seen_cases)
+                    diagnostics["tumor_positive_cases_seen"] = len(positive_cases)
+                for c in range(3):
+                    label_mask = segmentation == c
+                    diagnostics["class_voxel_counts"][c] += int(label_mask.sum().item())
+                    diagnostics["predicted_class_voxel_counts"][c] += int(
+                        ((prediction == c) & valid).sum().item()
+                    )
+                    diagnostics["class_weighted_ce_sums"][c] += float(
+                        per_voxel[label_mask].sum().item()
+                    )
         optimizer.step()
+        if diagnostics is not None:
+            update_sq = sum(
+                float(
+                    torch.linalg.vector_norm(
+                        p.detach().reshape(-1)[: before.numel()] - before
+                    ).item()
+                )
+                ** 2
+                for p, before in sampled
+            )
+            diagnostics["sampled_parameter_update_l2_max"] = max(
+                diagnostics["sampled_parameter_update_l2_max"], update_sq**0.5
+            )
+            diagnostics["updates"] += 1
         if any(not torch.isfinite(p).all() for p in model.parameters()):
             raise FloatingPointError("Nonfinite model parameters")
 
@@ -281,8 +429,8 @@ def run_phase_a(
     device:
         CPU or CUDA device.
     train_loader:
-        DataLoader for the training split. Tumour labels are collapsed to liver
-        labels for this liver-only phase.
+        DataLoader for the training split. Explicit three_class mode preserves
+        tumour labels; historical liver_only mode folds them into liver.
     val_loader:
         Optional DataLoader for validation Dice computation each epoch.
 
@@ -292,6 +440,7 @@ def run_phase_a(
         ``epoch_losses`` (list[float]), ``best_epoch`` (int),
         ``best_metrics`` (dict).
     """
+    reject_unmanaged_reconstruction(config)
     warnings.warn(
         "Standalone phase helpers do not provide exact resume, ownership or budgets; "
         "use run_cascaded_training for managed runs.",
@@ -322,15 +471,22 @@ def run_phase_a(
     best_metrics: dict[str, float] = {}
     selected_best = False
 
-    liver_only_train_loader = _LiverOnlyLoader(train_loader)
-    liver_only_val_loader = _LiverOnlyLoader(val_loader) if val_loader is not None else None
+    target_mode = phase_a_target_mode(config)
+    phase_train_loader = (
+        _LiverOnlyLoader(train_loader) if target_mode == "liver_only" else train_loader
+    )
+    phase_val_loader: Any = (
+        _LiverOnlyLoader(val_loader)
+        if target_mode == "liver_only" and val_loader is not None
+        else val_loader
+    )
 
     for epoch in tqdm(range(1, total_epochs + 1), desc="Phase A", position=0, leave=True):
         epoch_loss = _run_epoch(
             config=config,
             model=model,
             device=device,
-            loader=liver_only_train_loader,  # type: ignore[arg-type]
+            loader=phase_train_loader,
             optimizer=optimizer,
             steps_per_epoch=steps_per_epoch,
         )
@@ -341,13 +497,17 @@ def run_phase_a(
 
         # Compute val Dice for best-checkpoint tracking.
         metrics: dict[str, float] = {"train_loss": epoch_loss}
-        if liver_only_val_loader is not None:
+        if phase_val_loader is not None:
             from dense_unet_3d.evaluation.evaluate import evaluate  # lazy import
 
             model.eval()
-            val_metrics = evaluate(model, device, liver_only_val_loader)  # type: ignore[arg-type]
+            val_metrics = evaluate(model, device, phase_val_loader)
             metrics.update(val_metrics)
-            val_dice = float(val_metrics.get("liver_per_case", 0.0))
+            val_dice = (
+                foreground_selection_score(val_metrics)
+                if target_mode == "three_class"
+                else float(val_metrics.get("liver_per_case", 0.0))
+            )
         else:
             val_dice = 0.0
 
@@ -361,6 +521,7 @@ def run_phase_a(
             selected_best = True
             save_checkpoint(
                 path=best_path,
+                config=config,
                 model=model,
                 optimizer=optimizer,
                 scheduler=scheduler,
@@ -371,6 +532,7 @@ def run_phase_a(
     # Save last checkpoint.
     save_checkpoint(
         path=os.path.join(phase_dir, "last.pt"),
+        config=config,
         model=model,
         optimizer=optimizer,
         scheduler=scheduler,
@@ -433,6 +595,7 @@ def run_phase_b(
         ``loaded_phase_a_state_dict`` (dict — the state dict actually loaded,
         for test assertions).
     """
+    reject_unmanaged_reconstruction(config)
     warnings.warn(
         "Standalone phase helpers do not provide exact resume, ownership or budgets; "
         "use run_cascaded_training for managed runs.",
@@ -453,6 +616,7 @@ def run_phase_b(
     )
     _validate_phase_schedule(total_epochs, steps_per_epoch, "phase_b")
 
+    validate_phase_transfer_policy(config)
     # Move model to device first so load_checkpoint maps to the right device.
     model = model.to(device)
     optimizer = get_optimizer(model, config)
@@ -463,6 +627,7 @@ def run_phase_b(
     loaded_phase_a_state_dict: dict[str, torch.Tensor] = {
         k: v.clone() for k, v in phase_a_ckpt["model_state_dict"].items()
     }
+    validate_checkpoint_graph(phase_a_ckpt, model)
     model.load_state_dict(phase_a_ckpt["model_state_dict"])
 
     epoch_losses: list[float] = []
@@ -492,17 +657,7 @@ def run_phase_b(
             model.eval()
             val_metrics = evaluate(model, device, val_loader)
             metrics.update(val_metrics)
-            # Phase B: balanced selection on nanmean(liver_per_case, tumor_per_case).
-            # If both are NaN the result is NaN; treat NaN as "never better" (nan > x is False).
-            liver_pc = val_metrics.get("liver_per_case", float("nan"))
-            tumor_pc = val_metrics.get("tumor_per_case", float("nan"))
-            components = np.array([liver_pc, tumor_pc], dtype=float)
-            if np.all(np.isnan(components)):
-                val_dice = float("nan")
-            else:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", RuntimeWarning)
-                    val_dice = float(np.nanmean(components))
+            val_dice = foreground_selection_score(val_metrics)
         else:
             val_dice = 0.0
 
@@ -516,6 +671,7 @@ def run_phase_b(
             selected_best = True
             save_checkpoint(
                 path=best_path,
+                config=config,
                 model=model,
                 optimizer=optimizer,
                 scheduler=scheduler,
@@ -526,6 +682,7 @@ def run_phase_b(
     # Save last checkpoint.
     save_checkpoint(
         path=os.path.join(phase_dir, "last.pt"),
+        config=config,
         model=model,
         optimizer=optimizer,
         scheduler=scheduler,

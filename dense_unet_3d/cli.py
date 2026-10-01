@@ -27,8 +27,10 @@ import math
 import os
 import sys
 import time
+import warnings
+from collections.abc import Sized
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import nibabel as nib
 import numpy as np
@@ -105,6 +107,9 @@ class _TinyStub(nn.Module):
 def _load_model_from_checkpoint(
     checkpoint_path: str,
     device: torch.device,
+    config: dict[str, Any] | None = None,
+    *,
+    allow_legacy_preprocessing: bool = False,
 ) -> nn.Module:
     """Load the full model from a checkpoint.
 
@@ -113,10 +118,62 @@ def _load_model_from_checkpoint(
     fallback is transparent to callers.
     """
     ckpt: dict[str, Any] = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    from dense_unet_3d.training.experiment import configure_execution, preprocessing_identity
+
+    if (
+        config is not None
+        and config.get("execution") is not None
+        and ckpt.get("execution") is not None
+    ):
+        if config["execution"] != ckpt["execution"]:
+            raise ValueError("Checkpoint execution configuration mismatch")
+    configure_execution({"execution": ckpt.get("execution", (config or {}).get("execution"))})
     state = ckpt["model_state_dict"]
 
+    def validate_preprocessing() -> None:
+        if config is None:
+            return
+        expected_identity = preprocessing_identity(config)
+        actual_identity = ckpt.get("preprocessing_identity")
+        checkpoint_dataset = ckpt.get("dataset_config")
+        if actual_identity is not None and not isinstance(checkpoint_dataset, dict):
+            raise ValueError("Checkpoint has incomplete preprocessing metadata")
+        if isinstance(checkpoint_dataset, dict):
+            configured_dataset = config.get("dataset", {})
+            for key, default in (
+                ("sampling", "whole_volume"),
+                ("resize_img", True),
+                ("resize_dims", {"D": 12, "H": 224, "W": 224}),
+                ("clamp_hu", True),
+                ("clamp_hu_range", {"min": -200, "max": 250}),
+            ):
+                if checkpoint_dataset.get(key, default) != configured_dataset.get(key, default):
+                    raise ValueError(f"Checkpoint preprocessing mismatch: {key}")
+        if actual_identity is None:
+            if not allow_legacy_preprocessing:
+                raise ValueError(
+                    "Checkpoint lacks preprocessing identity; pass "
+                    "--allow-legacy-preprocessing only after verifying its historical pipeline"
+                )
+            warnings.warn(
+                "LEGACY PREPROCESSING OVERRIDE: checkpoint sampling semantics are unknown; "
+                "evaluation or prediction may not be comparable to the training pipeline.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        elif actual_identity != expected_identity:
+            raise ValueError("Checkpoint preprocessing implementation mismatch")
+
     # Legitimate test-stub checkpoint: detect by its exact state_dict keys.
-    if set(state.keys()) == {"conv.weight", "conv.bias"}:
+    if not {"model_config", "model_fingerprint"}.intersection(ckpt) and set(state.keys()) == {
+        "conv.weight",
+        "conv.bias",
+    }:
+        if (config or {}).get("model") is not None:
+            raise ValueError(
+                "Synthetic stub checkpoint cannot satisfy an explicit model configuration"
+            )
+        validate_preprocessing()
         conv = nn.Conv3d(1, 3, kernel_size=1)
         conv.load_state_dict({"weight": state["conv.weight"], "bias": state["conv.bias"]})
         stub: nn.Module = _TinyStub(conv)
@@ -127,9 +184,27 @@ def _load_model_from_checkpoint(
     # Otherwise this is a real DenseUNet3d checkpoint. Let a genuine key/shape
     # mismatch surface (re-raised with context) instead of being swallowed and
     # masked by a misleading 'Cannot reconstruct model' message.
-    from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
+    from dense_unet_3d.model.config import build_model, validate_model_metadata
 
-    model: nn.Module = DenseUNet3d()
+    model_config: dict[str, Any] | str
+    if "model_config" in ckpt or "model_fingerprint" in ckpt:
+        model_config = validate_model_metadata(ckpt, (config or {}).get("model"))
+    else:
+        # The sole supported metadata-free production graph is the known
+        # historical reduced model. Tensor count never selects a candidate.
+        model_config = "historical_reduced"
+        if (config or {}).get("model") is not None:
+            from dense_unet_3d.model.config import canonical_model_config
+
+            if (config or {})["model"] not in (
+                "historical_reduced",
+                canonical_model_config("historical_reduced"),
+            ):
+                raise ValueError(
+                    "Metadata-free checkpoint supports only the historical reduced graph"
+                )
+    validate_preprocessing()
+    model: nn.Module = build_model(model_config)
     try:
         model.load_state_dict(state)
     except Exception as exc:
@@ -210,6 +285,7 @@ def _cmd_train(args: argparse.Namespace) -> None:
 
     config = _load_config(args.config)
     _print_training_plan(config, args)
+    three_class_a = config.get("training", {}).get("phase_a_targets") == "three_class"
     resume = args.command == "resume"
     with RunSession(
         config,
@@ -241,8 +317,8 @@ def _cmd_train(args: argparse.Namespace) -> None:
             sys.stdout.write(
                 "Validation workload: 2 synthetic cases, 1 CPU batch per validation.\n"
             )
-            phase_a_train_loader = _make_dry_run_loader(detect_tumors=False)
-            phase_a_val_loader = _make_dry_run_loader(detect_tumors=False)
+            phase_a_train_loader = _make_dry_run_loader(detect_tumors=three_class_a)
+            phase_a_val_loader = _make_dry_run_loader(detect_tumors=three_class_a)
             phase_b_train_loader = _make_dry_run_loader()
             phase_b_val_loader = _make_dry_run_loader()
         else:
@@ -251,7 +327,8 @@ def _cmd_train(args: argparse.Namespace) -> None:
                 preflight_config,
                 prepare_dataloader,
             )
-            from dense_unet_3d.model.DenseUNet3d import DenseUNet3d
+            from dense_unet_3d.model.config import build_model
+            from dense_unet_3d.training.experiment import configure_execution
 
             pairs = discover_pairs(config["pathing"]["test_img_dirs"])
             batch_size = config["dataset"]["batch_size"]
@@ -269,11 +346,24 @@ def _cmd_train(args: argparse.Namespace) -> None:
                 sys.stdout.write(f"Training {reason} during preflight.\n")
                 return
             device = _device_from_config(config)
-            model = DenseUNet3d()
-            phase_a_train_loader = prepare_dataloader(config, train=True, detect_tumors=False)
-            phase_a_val_loader = prepare_dataloader(config, train=False, detect_tumors=False)
+            configure_execution(config)
+            model = build_model(config.get("model"))
+            phase_a_train_loader = prepare_dataloader(
+                config, train=True, detect_tumors=three_class_a
+            )
+            phase_a_val_loader = prepare_dataloader(
+                config, train=False, detect_tumors=three_class_a
+            )
             phase_b_train_loader = prepare_dataloader(config, train=True, detect_tumors=True)
             phase_b_val_loader = prepare_dataloader(config, train=False, detect_tumors=True)
+            for name, loader in (
+                ("train", phase_a_train_loader),
+                ("validation", phase_a_val_loader),
+            ):
+                sys.stdout.write(
+                    f"{name}: {len(cast(Sized, loader.dataset))} samples, {len(loader)} minibatches; "
+                    f"microbatch={loader.batch_size}, accumulation=1.\n"
+                )
 
         from dense_unet_3d.training.cascaded_driver import run_cascaded_training
 
@@ -372,7 +462,12 @@ def _cmd_eval(args: argparse.Namespace) -> None:
     started = time.monotonic()
     device = torch.device("cpu") if args.dry_run else _device_from_config(config)
 
-    model = _load_model_from_checkpoint(args.checkpoint, device)
+    model = _load_model_from_checkpoint(
+        args.checkpoint,
+        device,
+        None if args.dry_run else config,
+        allow_legacy_preprocessing=args.allow_legacy_preprocessing,
+    )
 
     if args.dry_run:
         val_loader = _make_dry_run_loader()
@@ -404,58 +499,72 @@ def _cmd_predict(args: argparse.Namespace) -> None:
     config = _load_config(args.config)
     device = _device_from_config(config)
 
-    model = _load_model_from_checkpoint(args.checkpoint, device)
+    model = _load_model_from_checkpoint(
+        args.checkpoint,
+        device,
+        config,
+        allow_legacy_preprocessing=args.allow_legacy_preprocessing,
+    )
 
     # Load the input NIfTI volume.
     input_img: nib.nifti1.Nifti1Image = nib.load(args.input)  # type: ignore[assignment]
     if len(input_img.shape) != 3:
         raise ValueError(f"predict expects a 3-D NIfTI volume, got shape {input_img.shape}")
     affine = input_img.affine
-    data: np.ndarray[Any, Any] = input_img.get_fdata(dtype=np.float32)  # (H, W, D)
+    pred_hwd: np.ndarray[Any, Any]
 
-    # Mirror the deterministic training preprocessing.  Defaults retain the
-    # documented model contract for minimal inference-only config files.
-    dataset_config = config.get("dataset", {})
-    if dataset_config.get("clamp_hu", True):
-        clamp_range = dataset_config.get("clamp_hu_range", {})
-        data = np.clip(
-            data,
-            float(clamp_range.get("min", -200.0)),
-            float(clamp_range.get("max", 250.0)),
+    from dense_unet_3d.dataset.prepare_dataset import sampling_mode
+
+    mode = sampling_mode(config)
+    if mode == "native_slabs":
+        from dense_unet_3d.evaluation.predict import predict_volume
+
+        pred_hwd = predict_volume(model, device, input_img, config["dataset"])
+    else:
+        data: np.ndarray[Any, Any] = input_img.get_fdata(dtype=np.float32)
+        # Mirror the deterministic training preprocessing.  Defaults retain the
+        # documented model contract for minimal inference-only config files.
+        dataset_config = config.get("dataset", {})
+        if dataset_config.get("clamp_hu", True):
+            clamp_range = dataset_config.get("clamp_hu_range", {})
+            data = np.clip(
+                data,
+                float(clamp_range.get("min", -200.0)),
+                float(clamp_range.get("max", 250.0)),
+            )
+
+        # Convert to NCDHW tensor: (H, W, D) → (1, 1, D, H, W).
+        volume = torch.from_numpy(data).permute(2, 0, 1).unsqueeze(0).unsqueeze(0).float()
+        volume = volume.to(device)
+
+        # Resize exactly as the deterministic image pipeline does, then map labels
+        # back with nearest-neighbour interpolation to retain the input geometry.
+        if not dataset_config.get("resize_img", True):
+            raise ValueError(
+                "predict requires dataset.resize_img=true because DenseUNet3d has a fixed spatial input contract"
+            )
+        resize_dims = dataset_config.get("resize_dims", {})
+        model_dhw = (
+            int(resize_dims.get("D", 12)),
+            int(resize_dims.get("H", 224)),
+            int(resize_dims.get("W", 224)),
         )
+        orig_dhw = (volume.shape[2], volume.shape[3], volume.shape[4])
+        volume = F.interpolate(volume, size=model_dhw, mode="trilinear", align_corners=False)
 
-    # Convert to NCDHW tensor: (H, W, D) → (1, 1, D, H, W).
-    volume = torch.from_numpy(data).permute(2, 0, 1).unsqueeze(0).unsqueeze(0).float()
-    volume = volume.to(device)
+        # Run inference.
+        with torch.no_grad():
+            logits = model(volume)  # (1, C, D, H, W)
 
-    # Resize exactly as the deterministic image pipeline does, then map labels
-    # back with nearest-neighbour interpolation to retain the input geometry.
-    if not dataset_config.get("resize_img", True):
-        raise ValueError(
-            "predict requires dataset.resize_img=true because DenseUNet3d has a fixed spatial input contract"
-        )
-    resize_dims = dataset_config.get("resize_dims", {})
-    model_dhw = (
-        int(resize_dims.get("D", 12)),
-        int(resize_dims.get("H", 224)),
-        int(resize_dims.get("W", 224)),
-    )
-    orig_dhw = (volume.shape[2], volume.shape[3], volume.shape[4])
-    volume = F.interpolate(volume, size=model_dhw, mode="trilinear", align_corners=False)
+        # Argmax over channel dim → (1, 1, D, H, W) label volume at the model resolution.
+        pred = logits.argmax(dim=1, keepdim=True).float()
 
-    # Run inference.
-    with torch.no_grad():
-        logits = model(volume)  # (1, C, D, H, W)
+        # Map labels back on the same half-pixel grid, preserving discrete classes.
+        pred = F.interpolate(pred, size=orig_dhw, mode="nearest-exact")
+        pred_np = pred.squeeze(0).squeeze(0).cpu().numpy().astype(np.int16)  # (D, H, W)
 
-    # Argmax over channel dim → (1, 1, D, H, W) label volume at the model resolution.
-    pred = logits.argmax(dim=1, keepdim=True).float()
-
-    # Map labels back on the same half-pixel grid, preserving discrete classes.
-    pred = F.interpolate(pred, size=orig_dhw, mode="nearest-exact")
-    pred_np = pred.squeeze(0).squeeze(0).cpu().numpy().astype(np.int16)  # (D, H, W)
-
-    # Back to NIfTI HWD order: (D, H, W) → (H, W, D).
-    pred_hwd: np.ndarray[Any, Any] = np.transpose(pred_np, (1, 2, 0))
+        # Back to NIfTI HWD order: (D, H, W) → (H, W, D).
+        pred_hwd = np.transpose(pred_np, (1, 2, 0))
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     header = input_img.header.copy()
@@ -583,6 +692,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Use synthetic validation data (no real NIfTI files needed).",
     )
+    eval_parser.add_argument(
+        "--allow-legacy-preprocessing",
+        action="store_true",
+        help="Allow a checkpoint without preprocessing identity and emit a prominent warning.",
+    )
 
     eval_parser.add_argument(
         "--wall-seconds",
@@ -592,9 +706,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     eval_parser.add_argument(
         "--max-batches",
+        "--max-cases",
         type=_positive_int,
         default=100,
-        help="Refuse incomplete evaluation beyond this batch bound.",
+        help="Whole-case limit for native slabs; batch limit for historical input. Partial cohort scores are withheld.",
     )
 
     # -- predict --------------------------------------------------------------
@@ -617,6 +732,11 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="PATH",
         help="Path to .pt checkpoint file.",
+    )
+    predict_parser.add_argument(
+        "--allow-legacy-preprocessing",
+        action="store_true",
+        help="Allow a checkpoint without preprocessing identity and emit a prominent warning.",
     )
     predict_parser.add_argument(
         "--input",

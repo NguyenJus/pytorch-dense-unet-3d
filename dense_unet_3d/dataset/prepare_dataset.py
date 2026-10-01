@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any
 
@@ -5,11 +6,39 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from dense_unet_3d.dataset.LITSDataset import LITSDataset, _case_id, discover_pairs, preflight_pairs
+from dense_unet_3d.dataset.slabs import NativeSlabDataset
 from dense_unet_3d.dataset.transforms.ClampValues import ClampValues
 from dense_unet_3d.dataset.transforms.RandomHorizontalFlip import RandomHorizontalFlip
 from dense_unet_3d.dataset.transforms.ReshapeTensor import ReshapeTensor
 from dense_unet_3d.dataset.transforms.Resize import Resize
 from dense_unet_3d.dataset.transforms.ScaleAndPadOrCrop import ScaleAndPadOrCrop
+
+SUPPORTED_SAMPLING = {"whole_volume", "native_slabs"}
+
+
+def sampling_mode(config: dict) -> str:
+    """Return the canonical sampling mode and reject unknown configuration values."""
+    dataset = config.get("dataset", {})
+    if not isinstance(dataset, dict):
+        raise ValueError("dataset must be a mapping")
+    mode = dataset.get("sampling", "whole_volume")
+    if not isinstance(mode, str) or mode not in SUPPORTED_SAMPLING:
+        raise ValueError(
+            f"unknown dataset.sampling {mode!r}; expected one of {sorted(SUPPORTED_SAMPLING)}"
+        )
+    return mode
+
+
+def _validate_split_manifest(config: dict, split: str, pairs: list[tuple[str, str]]) -> None:
+    path = config.get("experiment", {}).get("split_manifest")
+    if path is None:
+        return
+    with open(path) as stream:
+        manifest = json.load(stream)
+    expected = manifest["case_ids"][split]
+    actual = [_case_id(volume, "volume") for volume, _target in pairs]
+    if len(expected) != len(set(expected)) or set(actual) != set(expected):
+        raise ValueError(f"{split} source cases differ from experiment.split_manifest")
 
 
 def compose_transforms(config: dict, train: bool = True) -> dict:
@@ -85,6 +114,7 @@ def preflight_config(config: dict, *, full_decode: bool = False) -> dict[str, in
     or CUDA are created.  ``full_decode`` adds segmentation-label validation;
     header-only checks are useful for a fast standalone audit.
     """
+    sampling_mode(config)
     pathing = config["pathing"]
     train_dirs = pathing.get("train_img_dirs")
     test_dirs = pathing.get("test_img_dirs")
@@ -130,6 +160,7 @@ def preflight_config(config: dict, *, full_decode: bool = False) -> dict[str, in
         if key not in discovered:
             continue
         try:
+            _validate_split_manifest(config, key, discovered[key])
             counts[key] = preflight_pairs(
                 discovered[key], full_decode=full_decode, split_name=split_name
             )
@@ -145,7 +176,7 @@ def prepare_dataset(
     train: bool,
     *,
     detect_tumors: bool = True,
-) -> LITSDataset:
+) -> LITSDataset | NativeSlabDataset:
     """
     Builds the dataset based on user configuration
 
@@ -181,6 +212,13 @@ def prepare_dataset(
                 raise ValueError(
                     "train_img_dirs and test_img_dirs overlap; validation data would leak into training"
                 )
+
+    mode = sampling_mode(config)
+    if mode == "native_slabs":
+        _validate_split_manifest(
+            config, "train" if train else "validation", discover_pairs(img_dirs)
+        )
+        return NativeSlabDataset(img_dirs, config["dataset"], detect_tumors=detect_tumors)
 
     transform = compose_transforms(config, train=train)
     all_transforms = transform["all_transforms"]

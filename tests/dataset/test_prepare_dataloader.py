@@ -16,12 +16,14 @@ import nibabel as nib
 import numpy as np
 import pytest
 import torch
+import yaml
 from torch.utils.data import RandomSampler, SequentialSampler
 
 from dense_unet_3d.dataset.prepare_dataset import (
     compose_transforms,
     preflight_config,
     prepare_dataloader,
+    sampling_mode,
 )
 from dense_unet_3d.dataset.transforms.RandomHorizontalFlip import RandomHorizontalFlip
 from dense_unet_3d.dataset.transforms.ScaleAndPadOrCrop import ScaleAndPadOrCrop
@@ -126,12 +128,41 @@ class TestValLoaderDeterministic:
 
         cfg = _config(str(tmp_path))
         cfg["dataset"]["resize_img"] = False
+        cfg["dataset"]["random_hflip"] = False
+        cfg["dataset"]["scale_img"] = False
         phase_a_labels = next(iter(prepare_dataloader(cfg, train=True, detect_tumors=False)))[1]
         phase_b_labels = next(iter(prepare_dataloader(cfg, train=True)))[1]
 
         assert 2 not in torch.unique(phase_a_labels).tolist()
         assert 1 in torch.unique(phase_a_labels).tolist()
         assert 2 in torch.unique(phase_b_labels).tolist()
+
+    def test_shipped_historical_sampling_builds_whole_volume_loader(self, tmp_path: Path) -> None:
+        vol = np.zeros((16, 12, 4), dtype=np.float32)
+        seg = np.zeros((16, 12, 4), dtype=np.int16)
+        _write_nifti(tmp_path / "volume0.nii", vol)
+        _write_nifti(tmp_path / "segmentation0.nii", seg)
+        config = yaml.safe_load(Path("configs/historical-reference.yaml").read_text())
+        config["pathing"]["train_img_dirs"] = [str(tmp_path)]
+
+        loader = prepare_dataloader(config, train=True)
+
+        assert sampling_mode(config) == "whole_volume"
+        assert len(loader.dataset) == 1
+
+    @pytest.mark.parametrize("sampling", ["legacy_volume_resize", None, [], {}])
+    def test_unknown_sampling_is_rejected(self, tmp_path: Path, sampling: object) -> None:
+        config = _config(str(tmp_path))
+        config["dataset"]["sampling"] = sampling
+        with pytest.raises(ValueError, match="unknown dataset.sampling"):
+            prepare_dataloader(config, train=True)
+        with pytest.raises(ValueError, match="unknown dataset.sampling"):
+            preflight_config(config)
+
+    @pytest.mark.parametrize("dataset", [None, [], "whole_volume"])
+    def test_non_mapping_dataset_config_is_rejected(self, dataset: object) -> None:
+        with pytest.raises(ValueError, match="dataset must be a mapping"):
+            sampling_mode({"dataset": dataset})
 
 
 class TestValLoaderFromTestDirs:

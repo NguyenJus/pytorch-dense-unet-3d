@@ -1,0 +1,464 @@
+{
+  "historical_reduced": {
+    "model_config": {
+      "name": "historical_reduced",
+      "schema_version": 1,
+      "status": "historical_deviation",
+      "input_shape": [
+        1,
+        12,
+        224,
+        224
+      ],
+      "block_counts": [
+        2,
+        6,
+        12,
+        18
+      ],
+      "bottlenecks": [
+        128,
+        128,
+        128,
+        128
+      ],
+      "growth": 32,
+      "compression": 0.5,
+      "stem": "conv7_stride2_symmetric_pad3_bn_relu",
+      "pool": "max2_stride2_valid",
+      "transition": "bn_conv1_conv1_stride122",
+      "dense_order": "conv1_bn_relu_depthwise3_pointwise1_bn_relu",
+      "decoder": "depthwise3_pointwise1_bn_relu",
+      "decoder_widths": [
+        504,
+        224,
+        192,
+        96,
+        64
+      ],
+      "skips": [
+        "dense_block3",
+        "dense_block2",
+        "dense_block1",
+        "stem",
+        "none"
+      ],
+      "resize": "main_only_trilinear_align_corners_true",
+      "batch_norm": {
+        "eps": 1e-05,
+        "momentum": 0.1,
+        "running_variance": "unbiased"
+      },
+      "initialization": "pytorch_conv_reset_parameters",
+      "bias": "historical_mixed",
+      "classifier": "conv1_3_logits"
+    },
+    "model_fingerprint": "438354cf123bc54b192e2c624dad909f5d8e740f5b43b56c260574df7d87b626",
+    "trainable_parameters": 3523643,
+    "stages": [
+      {
+        "name": "stem",
+        "shape": [
+          1,
+          96,
+          6,
+          112,
+          112
+        ],
+        "parameters": 33120
+      },
+      {
+        "name": "pool",
+        "shape": [
+          1,
+          96,
+          3,
+          56,
+          56
+        ],
+        "parameters": 0
+      },
+      {
+        "name": "dense_block1",
+        "shape": [
+          1,
+          160,
+          3,
+          56,
+          56
+        ],
+        "parameters": 44736
+      },
+      {
+        "name": "transition1",
+        "shape": [
+          1,
+          80,
+          3,
+          28,
+          28
+        ],
+        "parameters": 19520
+      },
+      {
+        "name": "dense_block2",
+        "shape": [
+          1,
+          272,
+          3,
+          28,
+          28
+        ],
+        "parameters": 171072
+      },
+      {
+        "name": "transition2",
+        "shape": [
+          1,
+          136,
+          3,
+          14,
+          14
+        ],
+        "parameters": 56032
+      },
+      {
+        "name": "dense_block3",
+        "shape": [
+          1,
+          520,
+          3,
+          14,
+          14
+        ],
+        "parameters": 575616
+      },
+      {
+        "name": "transition3",
+        "shape": [
+          1,
+          260,
+          3,
+          7,
+          7
+        ],
+        "parameters": 203840
+      },
+      {
+        "name": "dense_block4",
+        "shape": [
+          1,
+          836,
+          3,
+          7,
+          7
+        ],
+        "parameters": 1370304
+      },
+      {
+        "name": "up1",
+        "shape": [
+          1,
+          504,
+          3,
+          14,
+          14
+        ],
+        "parameters": 722904
+      },
+      {
+        "name": "up2",
+        "shape": [
+          1,
+          224,
+          3,
+          28,
+          28
+        ],
+        "parameters": 196224
+      },
+      {
+        "name": "up3",
+        "shape": [
+          1,
+          192,
+          3,
+          56,
+          56
+        ],
+        "parameters": 85056
+      },
+      {
+        "name": "up4",
+        "shape": [
+          1,
+          96,
+          6,
+          112,
+          112
+        ],
+        "parameters": 36000
+      },
+      {
+        "name": "up5",
+        "shape": [
+          1,
+          64,
+          12,
+          224,
+          224
+        ],
+        "parameters": 9024
+      },
+      {
+        "name": "classifier",
+        "shape": [
+          1,
+          3,
+          12,
+          224,
+          224
+        ],
+        "parameters": 195
+      }
+    ],
+    "skip_sources": [
+      "dense_block3",
+      "dense_block2",
+      "dense_block1",
+      "stem",
+      "none"
+    ]
+  },
+  "figure_skip_reconstruction_v1": {
+    "model_config": {
+      "name": "figure_skip_reconstruction_v1",
+      "schema_version": 1,
+      "status": "diagnostic_unresolved",
+      "input_shape": [
+        1,
+        12,
+        224,
+        224
+      ],
+      "block_counts": [
+        4,
+        12,
+        24,
+        36
+      ],
+      "bottlenecks": [
+        128,
+        128,
+        128,
+        32
+      ],
+      "growth": 32,
+      "compression": 0.5,
+      "stem": "conv7_stride2_same_upper_bn_relu",
+      "pool": "max3_stride2_same_upper",
+      "transition": "conv1_bn_relu_conv1_stride122",
+      "dense_order": "conv1_bn_relu_depthwise3_pointwise1_bn_relu",
+      "decoder": "conv3_bn_relu",
+      "decoder_widths": [
+        504,
+        224,
+        192,
+        96,
+        64
+      ],
+      "skips": [
+        "dense_block4",
+        "dense_block3",
+        "dense_block2",
+        "dense_block1",
+        "stem"
+      ],
+      "resize": "both_trilinear_align_corners_false",
+      "batch_norm": {
+        "eps": 0.001,
+        "momentum": 0.01,
+        "running_variance": "unbiased"
+      },
+      "initialization": "glorot_uniform_keras_depthwise_fans_bias_zero",
+      "bias": "all_convolutions",
+      "classifier": "conv1_3_logits"
+    },
+    "model_fingerprint": "8545f5b2e8dbfe1c448909e86a07e5aa09e7f6bf9a25a9b418867a5d72120cef",
+    "trainable_parameters": 64591723,
+    "stages": [
+      {
+        "name": "stem",
+        "shape": [
+          1,
+          96,
+          6,
+          112,
+          112
+        ],
+        "parameters": 33216
+      },
+      {
+        "name": "pool",
+        "shape": [
+          1,
+          96,
+          3,
+          56,
+          56
+        ],
+        "parameters": 0
+      },
+      {
+        "name": "dense_block1",
+        "shape": [
+          1,
+          224,
+          3,
+          56,
+          56
+        ],
+        "parameters": 106368
+      },
+      {
+        "name": "transition1",
+        "shape": [
+          1,
+          112,
+          3,
+          28,
+          28
+        ],
+        "parameters": 38080
+      },
+      {
+        "name": "dense_block2",
+        "shape": [
+          1,
+          496,
+          3,
+          28,
+          28
+        ],
+        "parameters": 540288
+      },
+      {
+        "name": "transition2",
+        "shape": [
+          1,
+          248,
+          3,
+          14,
+          14
+        ],
+        "parameters": 185504
+      },
+      {
+        "name": "dense_block3",
+        "shape": [
+          1,
+          1016,
+          3,
+          14,
+          14
+        ],
+        "parameters": 2088192
+      },
+      {
+        "name": "transition3",
+        "shape": [
+          1,
+          508,
+          3,
+          7,
+          7
+        ],
+        "parameters": 776224
+      },
+      {
+        "name": "dense_block4",
+        "shape": [
+          1,
+          1660,
+          3,
+          7,
+          7
+        ],
+        "parameters": 1306368
+      },
+      {
+        "name": "up1",
+        "shape": [
+          1,
+          504,
+          3,
+          14,
+          14
+        ],
+        "parameters": 45180072
+      },
+      {
+        "name": "up2",
+        "shape": [
+          1,
+          224,
+          3,
+          28,
+          28
+        ],
+        "parameters": 9193632
+      },
+      {
+        "name": "up3",
+        "shape": [
+          1,
+          192,
+          3,
+          56,
+          56
+        ],
+        "parameters": 3733056
+      },
+      {
+        "name": "up4",
+        "shape": [
+          1,
+          96,
+          6,
+          112,
+          112
+        ],
+        "parameters": 1078560
+      },
+      {
+        "name": "up5",
+        "shape": [
+          1,
+          64,
+          12,
+          224,
+          224
+        ],
+        "parameters": 331968
+      },
+      {
+        "name": "classifier",
+        "shape": [
+          1,
+          3,
+          12,
+          224,
+          224
+        ],
+        "parameters": 195
+      }
+    ],
+    "skip_sources": [
+      "dense_block4",
+      "dense_block3",
+      "dense_block2",
+      "dense_block1",
+      "stem"
+    ]
+  }
+}

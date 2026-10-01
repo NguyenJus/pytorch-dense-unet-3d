@@ -39,24 +39,20 @@ Design decisions (the §3 "knobs"), recorded for the G1 decision record:
   dense blocks and transitions. The two highest-resolution decoder blocks (up4,
   up5) restore depth 3->6->12 via the trilinear Upsample ``size=`` target.
 * Transition compression target: **0.5** (the paper's stated value, unchanged).
-  The local parameter target is met by reducing block counts, not compression.
+  The old parameter-target rationale is historical and no longer an acceptance test.
 * Skip wiring (5 encoder levels feed the decoder): the decoder bottom is DB4 at
   7x7x3; each up-block takes its skip from the encoder level at the matching
   post-upsample resolution (DB3@14, DB2@28, DB1@56, stem@112). The 224x224x12
   level has no encoder feature, so up5 takes no skip (skip_channels=0).
-* Block counts: paper specifies (4,12,24,36) at 1:3:6:9 ratio.  Full-scale
-  yields ~10.8M params (outside the repository's 3.6M ±15% band) because the growing bottleneck
-  1×1×1 in each DenseLayer takes the full concatenated input (in_ch → 128).
-  Using half-scale (2,6,12,18) preserves the ratio and achieves ~3.52M within
-  [3.06M, 4.14M].  Decision recorded in
-  ``docs/research/2026-06-21-denseunet569-architecture-decisions.md``.
-* Decoder convolutions: this implementation uses DS-Conv (depthwise 3×3×3 +
-  pointwise 1×1×1).  This is an efficiency deviation: Fig. 1 labels decoder
-  convolutions as Conv3D, while the paper explicitly limits its DS-Conv claim to
-  dense blocks.  See the research audit for the supporting citation.
-* Achieved trainable parameter count: ~3.52M, within the repository's 3.6M +/- 15% band
-  (3,060,000 - 4,140,000). The exact value is asserted (and printed) by
-  ``tests/model/test_dense_unet_3d.py::test_param_count_within_band``.
+* Historical counts (2,6,12,18) and the DS decoder are retained solely for
+  compatibility with the known reduced graph. They are not a faithful topology
+  inference from the paper's contradictory parameter totals. The former 3.6M
+  tolerance-band acceptance test has been removed. Exact historical count:
+  3,523,643 parameters.
+* The separate named diagnostic figure candidate is built by model/config.py.
+  See docs/research/2026-09-30-topology-evidence.md for its figure transcription,
+  full counts, DB4 bottleneck32, decoder and skip mapping, and unresolved gates.
+
 """
 
 from __future__ import annotations
