@@ -59,7 +59,76 @@ dense-unet-3d status --run-dir models/example_run --watch \
   --interval 10 --max-seconds 3600 >> logs/status.jsonl
 # Verify the local process identity and request SIGTERM through a pidfd.
 dense-unet-3d stop --run-dir models/example_run
+# Observe actual exit for at most 300 seconds; a timeout leaves the process alive.
+dense-unet-3d stop --run-dir models/example_run --wait-seconds 300
+# Operator opt-in: after the cooperative wait, force this verified attempt to exit.
+dense-unet-3d stop --run-dir models/example_run --wait-seconds 300 --force
 ```
+
+The default stop only requests cooperation; repeated SIGINT/SIGTERM also remain
+cooperative. Healthy training finishes its current epoch, validation and atomic
+recovery commit before exiting. No timeout automatically kills a long epoch.
+`RunSession` requires entry on the main thread, installs both signal handlers
+before publishing ownership, and restores them and releases ownership on entry
+failure (durable failure evidence depends on writable storage).
+
+Stop prints JSON. `stop_requested` means the signal was sent, not that training
+has exited. `--wait-seconds` observes actual exit using the verified process's
+pidfd; `timed_out_still_alive` exits the stop command with code 2. An observed
+`exited` with a clean durable terminal reason exits 0; missing/failed terminal
+evidence exits 2. These are stop-command statuses, separate from the training
+process's exit status. Default request acceptance exits 0 without asserting a
+clean exit. `clean_exit` is terminal evidence, not a new checkpoint verification.
+If the same attempt publishes a terminal record during the pre-signal recheck,
+stop skips SIGTERM: request-only mode reports `already_terminal` with
+`stop_requested=false`, while bounded mode still observes actual process exit.
+`already_terminal` exits 0 only for `user stopped`, `completed`, or `budget exhausted`;
+failed, unknown, missing, or unrecognized terminal reasons exit 2.
+
+`--force` requires `--wait-seconds` and sends SIGKILL only after that cooperative
+wait expires, rechecking process and run/attempt identity. It uses the same pidfd,
+so PID reuse cannot redirect the signal. A second wait of the same duration
+bounds exit observation: `forced_exit` confirms exit, while
+`force_requested_still_alive` reports that even SIGKILL has not produced exit
+(for example, uninterruptible kernel I/O). Both exit the stop command with code 3
+and report `clean_exit=false`. The two process-exit waits can total twice `--wait-seconds`.
+The same attempt's terminal record does not prevent explicit force if teardown
+leaves its process alive. Force does not write a terminal success or invent a checkpoint.
+
+The initial run-status lookup precedes identity verification and has no deadline;
+a blocked run filesystem can prevent discovery. Once that lookup succeeds, each
+subsequent filesystem status read gets at most `min(--wait-seconds, 1)` seconds
+(one second for request-only stop). These reads run in daemon readers, so a stuck
+read cannot block timeout reporting or interpreter exit. There are at most two
+such reads without force and three with force, in addition to the process-exit
+waits. These bounds cover waiting for status and exit; they are not a total command
+deadline including initial discovery, local kernel calls and scheduling overhead.
+
+If fresh ownership cannot be obtained before signaling,
+`stop_refused_status_unavailable` reports no accepted request. If it becomes
+unavailable before escalation, `force_refused_status_unavailable` confirms the
+cooperative request but refuses SIGKILL because attempt safety cannot be
+established; `force_refused=true` and stop-command exit code 2 make this explicit.
+Unavailable final status does not prevent reporting the pidfd's observed exit or
+live timeout. `status_available=false`, `status_error` and
+`checkpoint_source=cached_status` distinguish conservative cached checkpoint
+information from a refreshed record. Missing terminal evidence never becomes a
+clean exit. Exit races during acquisition, identity verification or signaling
+report an observed exit when disappearance is proven by the pidfd or ESRCH,
+while genuine permissions/identity errors remain failures.
+
+The JSON includes `last_committed_checkpoint` (path, phase, epoch, global step and
+commit time), the last commit recorded in durable runtime state. It is null before
+the first recorded checkpoint or for older records without this metadata. A
+checkpoint replacement can precede its runtime event, so this record is a
+conservative lower bound; inspect the actual checkpoint before recovery. Work
+since the last committed recovery state can be lost. Preserve runtime/events,
+checkpoints and stderr, resolve the blocking cause, confirm the process exited,
+and use explicit `resume --recover` with the original configuration and available
+persistent retry allowance. Recovery verifies the checkpoint and can fall back to
+its retained predecessor; exact continuation starts from the selected committed
+state, never from interrupted work. No GPU recovery should launch without the
+normal operator authorization.
 
 `runtime.json` contains stable run identity, unique attempt identity, resolved
 configuration, source identity, persistent allocations/attempt history, ownership,

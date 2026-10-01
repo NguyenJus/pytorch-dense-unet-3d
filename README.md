@@ -64,9 +64,14 @@ Cumulative wall time is persisted across explicit resumes.
 
 ```bash
 dense-unet-3d status --run-dir models/example_run --watch --max-seconds 3600
-dense-unet-3d stop --run-dir models/example_run
+dense-unet-3d stop --run-dir models/example_run --wait-seconds 300
 dense-unet-3d resume --config config.yaml --wall-seconds 28800
 ```
+
+Stop reports request acceptance separately from observed process exit. A bounded
+wait leaves a blocked process alive; explicit `--force` after that wait sends
+SIGKILL, reports an unclean outcome, and may lose work since the last committed
+checkpoint. See the recovery procedure and command exit codes in training operations.
 
 No automatic restart is installed. Legacy checkpoints without continuation state
 cannot exactly resume. Launch, recovery after host reboot, runtime accounting,

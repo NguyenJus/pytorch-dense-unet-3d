@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 import pytest
 import torch
@@ -51,6 +53,37 @@ def test_runtime_subcommands_help(command):
     with pytest.raises(SystemExit) as exc:
         cli._build_parser().parse_args([command, "--help"])
     assert exc.value.code == 0
+
+
+@pytest.mark.parametrize(
+    "options,message",
+    [(["--force"], "--force requires --wait-seconds")]
+    + [
+        ([f"--wait-seconds={value}"], "--wait-seconds")
+        for value in ("0", "-1", "nan", "inf", "-inf", "invalid")
+    ],
+)
+def test_stop_entrypoint_rejects_invalid_usage(tmp_path, options, message):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "dense_unet_3d.cli",
+            "stop",
+            "--run-dir",
+            str(tmp_path / "missing"),
+            *options,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "usage:" in result.stderr
+    assert message in result.stderr
+    assert "Traceback" not in result.stderr
+    assert "FileNotFoundError" not in result.stderr
 
 
 def test_plan_and_accounting_precede_preflight_and_allocation(config_path, monkeypatch, capsys):

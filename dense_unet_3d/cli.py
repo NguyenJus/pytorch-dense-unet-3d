@@ -435,8 +435,25 @@ def _cmd_status(args: argparse.Namespace) -> None:
 def _cmd_stop(args: argparse.Namespace) -> None:
     from dense_unet_3d.training.runtime import request_stop
 
-    request_stop(args.run_dir)
-    sys.stdout.write("Stop requested; wait for terminal reason and ownership release.\n")
+    result = request_stop(args.run_dir, wait_seconds=args.wait_seconds, force=args.force)
+    sys.stdout.write(json.dumps(result, sort_keys=True) + "\n")
+    if result["force_requested"]:
+        raise SystemExit(3)
+    if (
+        result["outcome"]
+        in {
+            "timed_out_still_alive",
+            "stop_refused_status_unavailable",
+            "force_refused_status_unavailable",
+        }
+        or (
+            result["outcome"] == "already_terminal"
+            and result.get("terminal_reason")
+            not in {"user stopped", "completed", "budget exhausted"}
+        )
+        or (result["process_exited"] and not result["clean_exit"])
+    ):
+        raise SystemExit(2)
 
 
 def _cmd_preflight(args: argparse.Namespace) -> None:
@@ -649,6 +666,16 @@ def _build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--max-seconds", type=_positive_seconds, default=3600.0)
     stop_parser = subparsers.add_parser("stop", help="Request safe stop from verified local owner.")
     stop_parser.add_argument("--run-dir", required=True)
+    stop_parser.add_argument(
+        "--wait-seconds",
+        type=_positive_seconds,
+        help="Wait up to this many seconds for actual process exit.",
+    )
+    stop_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Explicitly send SIGKILL after --wait-seconds expires; no clean checkpoint guarantee.",
+    )
 
     # -- preflight ------------------------------------------------------------
     preflight_parser = subparsers.add_parser(
@@ -769,6 +796,8 @@ def main() -> None:
     elif args.command == "status":
         _cmd_status(args)
     elif args.command == "stop":
+        if args.force and args.wait_seconds is None:
+            parser.error("--force requires --wait-seconds")
         _cmd_stop(args)
     elif args.command == "preflight":
         _cmd_preflight(args)

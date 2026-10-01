@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 import os
+import select
 import shutil
 import signal
 import socket
@@ -173,16 +174,182 @@ def _pidfd_send_signal(fd: int, sig: int) -> None:
     )
 
 
-def request_stop(run_dir: str | Path) -> None:
+def _bounded_status(
+    run_dir: str | Path, seconds: float
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Bound caller waiting even when run-filesystem I/O blocks indefinitely.
+
+    A timed-out reader is daemonized, has no write/signal authority, and cannot
+    prevent the stop command exiting. Never join it during timeout cleanup.
+    """
+    ready = threading.Event()
+    result: list[dict[str, Any]] = []
+    errors: list[str] = []
+
+    def read() -> None:
+        try:
+            result.append(read_status(run_dir))
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+        finally:
+            ready.set()
+
+    threading.Thread(target=read, daemon=True).start()
+    if not ready.wait(seconds):
+        return None, "status lookup timed out"
+    return (result[0], None) if result else (None, errors[0])
+
+
+def request_stop(
+    run_dir: str | Path, *, wait_seconds: float | None = None, force: bool = False
+) -> dict[str, Any]:
+    """Request cooperation; optionally wait, then explicitly escalate to SIGKILL.
+
+    The initial status lookup is unbounded. Later status reads each get at most
+    min(wait_seconds, 1) seconds (one second without a wait). Missing fresh owner
+    evidence refuses signaling, while reporting cached checkpoint information.
+    """
+    if wait_seconds is not None and (
+        isinstance(wait_seconds, bool) or not math.isfinite(wait_seconds) or wait_seconds <= 0
+    ):
+        raise ValueError("wait_seconds must be positive finite seconds")
+    if force and wait_seconds is None:
+        raise ValueError("Force requires an explicit bounded wait")
     state = read_status(run_dir)
     if state["ownership"] != "live":
         raise RuntimeError("Refusing signal: run has no verified live owner")
-    # pidfd prevents PID reuse between identity verification and signaling.
-    fd = _pidfd_open(state["owner"]["pid"])
+    owner = state["owner"]
+    cached = state
+    status_error: str | None = None
+    status_available = False
+    requested = False
+    forced = False
+    status_seconds = min(wait_seconds, 1.0) if wait_seconds is not None else 1.0
+
+    def same_attempt(current: dict[str, Any]) -> bool:
+        return all(current.get(key) == state.get(key) for key in ("owner", "run_id", "attempt_id"))
+
+    def refresh() -> dict[str, Any] | None:
+        nonlocal cached, status_error, status_available
+        current, status_error = _bounded_status(run_dir, status_seconds)
+        status_available = current is not None and same_attempt(current)
+        if status_available:
+            assert current is not None
+            cached = current
+        elif current is not None:
+            status_error = "run attempt changed"
+        return current
+
+    def report(outcome: str, exited: bool, *, refused: bool = False) -> dict[str, Any]:
+        reason = cached.get("terminal_reason") if status_available else "unknown"
+        if exited and reason is None:
+            reason = "unknown"
+        return {
+            "outcome": outcome,
+            "stop_requested": requested,
+            "process_exited": exited,
+            "force_requested": forced,
+            "force_refused": refused,
+            "clean_exit": exited
+            and not forced
+            and status_available
+            and reason in ("user stopped", "completed", "budget exhausted"),
+            "terminal_reason": reason,
+            "status_available": status_available,
+            "status_error": status_error,
+            "last_committed_checkpoint": cached.get("last_committed_checkpoint"),
+            "checkpoint_source": "refreshed_status" if status_available else "cached_status",
+            "owner": owner,
+            "attempt_id": state.get("attempt_id"),
+        }
+
     try:
-        if _process_identity(state["owner"]["pid"]) != state["owner"]:
-            raise RuntimeError("Owner changed before stop request")
-        _pidfd_send_signal(fd, signal.SIGTERM)
+        fd = _pidfd_open(owner["pid"])
+    except ProcessLookupError:
+        # No process occupied this PID at acquisition; the initially verified
+        # attempt exited. Never reopen or signal a replacement numeric PID.
+        refresh()
+        return report("exited", True)
+    try:
+        poller = select.poll()
+        poller.register(fd, select.POLLIN)
+
+        def exited_now() -> bool:
+            return bool(poller.poll(0))
+
+        def verify_target(current: dict[str, Any]) -> bool:
+            if exited_now():
+                return False
+            # Terminal publication changes the ownership label before process exit.
+            # It does not change the identity of the attempt pinned by the pidfd.
+            if not same_attempt(current):
+                raise RuntimeError("Owner changed before stop request")
+            try:
+                identity = _process_identity(owner["pid"])
+            except (FileNotFoundError, ProcessLookupError):
+                if exited_now():
+                    return False
+                raise
+            if identity != owner:
+                if exited_now():
+                    return False
+                raise RuntimeError("Owner changed before stop request")
+            return True
+
+        def send(sig: int) -> bool:
+            try:
+                _pidfd_send_signal(fd, sig)
+                return True
+            except ProcessLookupError:
+                # ESRCH from a pinned pidfd means this target no longer exists.
+                return False
+
+        def wait_for_exit(seconds: float) -> bool:
+            deadline = time.monotonic() + seconds
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return exited_now()
+                if poller.poll(math.ceil(min(remaining, 60) * 1000)):
+                    return True
+
+        current = refresh()
+        if current is None:
+            return report("stop_refused_status_unavailable", exited_now())
+        if not verify_target(current):
+            return report("exited", True)
+        if current.get("terminal_reason") is None:
+            if not send(signal.SIGTERM):
+                refresh()
+                return report("exited", True)
+            requested = True
+        exited = wait_for_exit(wait_seconds) if wait_seconds is not None else exited_now()
+        if not exited and force and wait_seconds is not None:
+            current = refresh()
+            if current is None:
+                return report("force_refused_status_unavailable", exited_now(), refused=True)
+            if not verify_target(current):
+                return report("exited", True)
+            if not send(signal.SIGKILL):
+                refresh()
+                return report("exited", True)
+            forced = True
+            exited = wait_for_exit(wait_seconds)
+        refresh()
+        return report(
+            "forced_exit"
+            if exited and forced
+            else "force_requested_still_alive"
+            if forced
+            else "exited"
+            if exited
+            else "timed_out_still_alive"
+            if wait_seconds is not None
+            else "already_terminal"
+            if not requested
+            else "stop_requested",
+            exited,
+        )
     finally:
         os.close(fd)
 
@@ -331,6 +498,10 @@ class RunSession:
         return float(self._base + self.elapsed)
 
     def __enter__(self) -> RunSession:
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError(
+                "RunSession must be entered on the main thread for cooperative signals"
+            )
         self._start = time.monotonic()
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self._lock = (self.run_dir / ".owner.lock").open("a+")
@@ -340,6 +511,10 @@ class RunSession:
             self._lock.close()
             raise RuntimeError("Run already has an active owner") from exc
         try:
+            # Install before any durable owner publication, including resumed attempts.
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                self._handlers[sig] = signal.getsignal(sig)
+                signal.signal(sig, self._handle_signal)
             path = self.run_dir / "runtime.json"
             identity = config_identity(self.config)
             # Temporary files are never continuation points; only remove our known
@@ -459,16 +634,23 @@ class RunSession:
             )
             self._entered = True
             self.event("attempt_started", resume=self.resume)
-            if threading.current_thread() is threading.main_thread():
-                for sig in (signal.SIGINT, signal.SIGTERM):
-                    self._handlers[sig] = signal.getsignal(sig)
-                    signal.signal(sig, self._handle_signal)
             self._thread = threading.Thread(target=self._heartbeat, daemon=True)
             self._thread.start()
             return self
         except BaseException:
-            self._entered = False
-            self._lock.close()
+            try:
+                if self._entered:
+                    self.state["terminal_reason"] = "failed"
+                    self.state["attempts"][-1].update(
+                        terminal_reason="failed", ended_at=time.time()
+                    )
+                    self._persist()
+            finally:
+                for saved_sig, handler in self._handlers.items():
+                    signal.signal(saved_sig, handler)
+                self._handlers.clear()
+                self._entered = False
+                self._lock.close()
             raise
 
     def _handle_signal(self, _signum: int, _frame: Any) -> None:
@@ -535,6 +717,13 @@ class RunSession:
                 stream.write(json.dumps(record, allow_nan=False) + "\n")
                 stream.flush()
                 os.fsync(stream.fileno())
+            if kind == "checkpoint":
+                self.state["last_committed_checkpoint"] = {
+                    "path": str(self.checkpoint_path),
+                    "committed_at": now,
+                    "attempt_id": self.attempt_id,
+                    **fields,
+                }
             self.state["progress_at"] = now
             self.state["progress"] = record
             self._persist()

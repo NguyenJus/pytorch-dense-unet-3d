@@ -89,6 +89,15 @@ def test_pidfd_closed_on_recheck_and_send_failure(tmp_path, monkeypatch, failure
     monkeypatch.setattr(runtime, "read_status", lambda _path: {"owner": owner, "ownership": "live"})
     fd = os.open(os.devnull, os.O_RDONLY)
     monkeypatch.setattr(runtime, "_pidfd_open", lambda _pid: fd)
+
+    class LivePoll:
+        def register(self, *_args):
+            pass
+
+        def poll(self, _timeout):
+            return []
+
+    monkeypatch.setattr(runtime.select, "poll", LivePoll)
     if failure == "identity_changed":
         monkeypatch.setattr(
             runtime, "_process_identity", lambda _pid: {**owner, "start_ticks": "-1"}
