@@ -2,9 +2,10 @@
 """Generate a tumor-stratified train/validation split manifest for LiTS.
 
 Cases are sorted by tumor voxel count and ``floor(N * fraction)`` cases, spread
-evenly over the sorted order from a seed-derived offset, go to validation.  ``--link-root`` additionally
-writes symlink trees ``<root>/train`` and ``<root>/validation`` so the existing
-dataset discovery and split-manifest validation work unchanged.  Pairs that fail
+evenly over the sorted order from a seed-derived offset, go to validation.
+``--link-root`` additionally writes symlink trees ``<root>/train`` and
+``<root>/validation`` so the existing dataset discovery and split-manifest
+validation work unchanged.  Pairs that fail
 the loader's image/mask shape or affine check are excluded before stratification
 and recorded under ``excluded`` with the reason.
 """
@@ -58,6 +59,14 @@ def _validation_positions(n: int, validation_fraction: float, seed: int) -> list
     return [offset + k * n // count for k in range(count)]
 
 
+def _stratification(positions: list[int], n: int) -> str:
+    """Name the selection rule actually used: every k-th when evenly spaced."""
+    gaps = {b - a for a, b in zip(positions, positions[1:], strict=False)}
+    if len(gaps) == 1:
+        return f"tumor_voxel_count_every_{gaps.pop()}th"
+    return f"tumor_voxel_count_spread_{len(positions)}_of_{n}"
+
+
 def build_manifest(
     pairs: list[tuple[str, str]], *, validation_fraction: float, seed: int
 ) -> dict[str, Any]:
@@ -94,8 +103,8 @@ def build_manifest(
             }
         )
     rows.sort(key=lambda row: (row["tumor_voxels"], row["id"]))
-    stride = round(1 / validation_fraction)
-    chosen = set(_validation_positions(len(rows), validation_fraction, seed))
+    positions = _validation_positions(len(rows), validation_fraction, seed)
+    chosen = set(positions)
     for position, row in enumerate(rows):
         row["split"] = "validation" if position in chosen else "train"
     case_ids = {
@@ -124,7 +133,7 @@ def build_manifest(
         ],
         "excluded": sorted(excluded, key=lambda row: str(row["id"])),
         "seed": seed,
-        "stratification": f"tumor_voxel_count_every_{stride}th",
+        "stratification": _stratification(positions, len(rows)),
         "validation_fraction": validation_fraction,
         "generator_revision": _generator_revision(),
     }

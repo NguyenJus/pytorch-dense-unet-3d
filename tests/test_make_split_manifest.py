@@ -72,6 +72,7 @@ def test_fraction_above_half_yields_floor_count(tree):
     # floor(10 * 0.6) = 6; spread positions reach all 6 (no truncation error).
     manifest = _build(tree, fraction=0.6)
     assert manifest["counts"] == {"train": 4, "validation": 6}
+    assert manifest["stratification"] == "tumor_voxel_count_spread_6_of_10"
 
 
 def test_real_run_positions_pinned():
