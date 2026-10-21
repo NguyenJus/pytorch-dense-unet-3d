@@ -58,17 +58,26 @@ def test_every_fifth_position_and_floor_count(tree):
     assert manifest["case_ids"]["validation"] == sorted(expected)
 
 
-def test_floor_count_caps_stride_positions(tree):
-    # 10 * 0.3 = 3 -> floor 3; stride round(1/0.3) = 3 -> positions {o, o+3, o+6, o+9} capped to 3
+def test_positions_spread_over_whole_range_when_stride_not_integral(tree):
+    # 10 * 0.3 = 3 validation cases; floor(N / count) = 3 -> offset in [0, 3), positions o + k*10//3.
     manifest = _build(tree, fraction=0.3)
-    assert manifest["counts"]["validation"] == 3
+    order = sorted(range(10), key=lambda k: (TUMOR_COUNTS[k], f"-{k}"))
+    offset = random.Random(7).randrange(3)
+    expected = {f"-{order[offset + k * 10 // 3]}" for k in range(3)}
+    assert set(manifest["case_ids"]["validation"]) == expected
     assert manifest["stratification"] == "tumor_voxel_count_every_3th"
 
 
-def test_fraction_short_of_floor_count_rejected(tree):
-    # floor(10 * 0.6) = 6 but stride round(1/0.6) = 2 reaches only 5 positions.
-    with pytest.raises(ValueError, match="not floor"):
-        _build(tree, fraction=0.6)
+def test_fraction_above_half_yields_floor_count(tree):
+    # floor(10 * 0.6) = 6; spread positions reach all 6 (no truncation error).
+    manifest = _build(tree, fraction=0.6)
+    assert manifest["counts"] == {"train": 4, "validation": 6}
+
+
+def test_real_run_positions_pinned():
+    # N=126, fraction 0.2, seed 20261021 -> offset 4, positions 4, 9, ..., 124.
+    assert random.Random(20261021).randrange(5) == 4
+    assert msm._validation_positions(126, 0.2, 20261021) == list(range(4, 125, 5))
 
 
 def test_tumor_ties_break_on_case_id(tmp_path):

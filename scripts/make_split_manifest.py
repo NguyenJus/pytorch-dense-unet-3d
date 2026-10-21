@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generate a tumor-stratified train/validation split manifest for LiTS.
 
-Cases are sorted by tumor voxel count and every ``round(1/fraction)``-th case,
-from a seed-derived offset, goes to validation.  ``--link-root`` additionally
+Cases are sorted by tumor voxel count and ``floor(N * fraction)`` cases, spread
+evenly over the sorted order from a seed-derived offset, go to validation.  ``--link-root`` additionally
 writes symlink trees ``<root>/train`` and ``<root>/validation`` so the existing
 dataset discovery and split-manifest validation work unchanged.  Pairs that fail
 the loader's image/mask shape or affine check are excluded before stratification
@@ -49,6 +49,15 @@ def _generator_revision() -> str:
     return result.stdout.strip() or "unknown"
 
 
+def _validation_positions(n: int, validation_fraction: float, seed: int) -> list[int]:
+    """Positions in the tumor-sorted order: ``offset + floor(k * n / count)`` for each k."""
+    count = math.floor(n * validation_fraction + 1e-9)
+    if count == 0:
+        return []
+    offset = random.Random(seed).randrange(max(1, n // count))
+    return [offset + k * n // count for k in range(count)]
+
+
 def build_manifest(
     pairs: list[tuple[str, str]], *, validation_fraction: float, seed: int
 ) -> dict[str, Any]:
@@ -85,15 +94,8 @@ def build_manifest(
             }
         )
     rows.sort(key=lambda row: (row["tumor_voxels"], row["id"]))
-    count = math.floor(len(rows) * validation_fraction + 1e-9)
     stride = round(1 / validation_fraction)
-    offset = random.Random(seed).randrange(stride)
-    chosen = set(range(offset, len(rows), stride)[:count])
-    if len(chosen) != count:
-        raise ValueError(
-            f"validation fraction {validation_fraction} gives {len(chosen)} every-{stride}th "
-            f"positions, not floor(N * fraction) = {count}"
-        )
+    chosen = set(_validation_positions(len(rows), validation_fraction, seed))
     for position, row in enumerate(rows):
         row["split"] = "validation" if position in chosen else "train"
     case_ids = {
