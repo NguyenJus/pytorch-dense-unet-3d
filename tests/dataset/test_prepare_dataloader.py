@@ -19,12 +19,15 @@ import torch
 import yaml
 from torch.utils.data import RandomSampler, SequentialSampler
 
+from dense_unet_3d.dataset.foreground_crops import CropSampler, ForegroundCropDataset
 from dense_unet_3d.dataset.prepare_dataset import (
     compose_transforms,
     preflight_config,
     prepare_dataloader,
+    prepare_dataset,
     sampling_mode,
 )
+from dense_unet_3d.dataset.slabs import NativeSlabDataset
 from dense_unet_3d.dataset.transforms.RandomHorizontalFlip import RandomHorizontalFlip
 from dense_unet_3d.dataset.transforms.ScaleAndPadOrCrop import ScaleAndPadOrCrop
 
@@ -297,3 +300,99 @@ class TestPreflightConfig:
             # as preserving arbitrary geometry for standalone raw-data audits.
             cfg["dataset"].pop("resize_img")
         assert preflight_config(cfg) == {"train": 1, "validation": 1}
+
+
+def _crop_config(train_dir: str, **dataset_update) -> dict:
+    cfg = _config(train_dir)
+    cfg["dataset"].update(
+        sampling="native_slabs",
+        inplane_representation="native_tiles_v1",
+        training_representation="foreground_crops_v1",
+        resize_img=False,
+        clamp_hu=False,
+        resize_dims={"D": 4, "H": 8, "W": 8},
+        passes_per_epoch=3,
+        tumor_centre_probability=0.5,
+        foreground_voxel_cache=50,
+        sampling_seed=7,
+        batch_size=2,
+        **dataset_update,
+    )
+    return cfg
+
+
+def _write_crop_cases(root: Path, ids: tuple[int, ...] = (0, 1, 2)) -> None:
+    root.mkdir(exist_ok=True)
+    labels = np.zeros((20, 18, 10), dtype=np.uint8)
+    labels[4:16, 3:15, 2:9] = 1
+    labels[6:8, 5:7, 4:6] = 2
+    for index in ids:
+        _write_nifti(root / f"volume-{index}.nii", labels.astype(np.float32))
+        _write_nifti(root / f"segmentation-{index}.nii", labels)
+
+
+def _crop_split(tmp_path: Path, **dataset_update) -> dict:
+    _write_crop_cases(tmp_path / "train")
+    _write_crop_cases(tmp_path / "val", (7,))
+    cfg = _crop_config(str(tmp_path / "train"), **dataset_update)
+    cfg["pathing"]["test_img_dirs"] = [str(tmp_path / "val")]
+    return cfg
+
+
+class TestForegroundCropWiring:
+    def test_train_returns_crop_dataset_and_validation_native_tiles(self, tmp_path: Path) -> None:
+        cfg = _crop_split(tmp_path)
+        assert isinstance(prepare_dataset(cfg, True), ForegroundCropDataset)
+        assert type(prepare_dataset(cfg, False)) is NativeSlabDataset
+
+    def test_cache_path_uses_run_directory(self, tmp_path: Path) -> None:
+        cfg = _crop_split(tmp_path)
+        cfg["pathing"].update(model_save_dir=str(tmp_path / "models"), run_name="run")
+        prepare_dataloader(cfg, train=True)
+        assert (tmp_path / "models" / "run" / "foreground-index.npz").is_file()
+
+    def test_loader_length_sampler_and_worker_settings(self, tmp_path: Path) -> None:
+        # 3 cases, 3 passes, batch 2 -> ceil(9 / 2) = 5
+        cfg = _crop_split(tmp_path, num_workers=2, pin_memory=True, persistent_workers=True)
+        loader = prepare_dataloader(cfg, train=True)
+        assert isinstance(loader.dataset, ForegroundCropDataset)
+        assert isinstance(loader.sampler, CropSampler)
+        assert len(loader) == 5
+        assert (loader.num_workers, loader.pin_memory, loader.persistent_workers) == (2, True, True)
+        expected = torch.Generator().manual_seed(7)
+        assert torch.equal(loader.sampler.generator.get_state(), expected.get_state())
+
+    def test_worker_settings_do_not_reach_validation_loader(self, tmp_path: Path) -> None:
+        cfg = _crop_split(tmp_path, num_workers=2, pin_memory=True, persistent_workers=True)
+        loader = prepare_dataloader(cfg, train=False)
+        assert isinstance(loader.dataset, NativeSlabDataset)
+        assert (loader.num_workers, loader.pin_memory, loader.persistent_workers) == (
+            0,
+            False,
+            False,
+        )
+
+    def test_defaults_and_validation_of_loader_keys(self, tmp_path: Path) -> None:
+        loader = prepare_dataloader(_crop_split(tmp_path), train=True)
+        assert (loader.num_workers, loader.pin_memory, loader.persistent_workers) == (
+            0,
+            False,
+            False,
+        )
+        with pytest.raises(ValueError, match="persistent_workers must be a boolean"):
+            prepare_dataloader(_crop_split(tmp_path, persistent_workers="yes"), train=True)
+        with pytest.raises(ValueError, match="shuffle"):
+            prepare_dataloader(_crop_split(tmp_path, shuffle=False), train=True)
+
+    def test_augmentation_flags_still_rejected_for_plain_native_tiles(self) -> None:
+        cfg = _config("unused")
+        cfg["dataset"].update(
+            sampling="native_slabs",
+            inplane_representation="native_tiles_v1",
+            resize_img=False,
+        )
+        with pytest.raises(ValueError, match="augmentation is unresolved"):
+            preflight_config(cfg)
+
+    def test_preflight_accepts_crop_config(self, tmp_path: Path) -> None:
+        assert preflight_config(_crop_split(tmp_path)) == {"train": 3, "validation": 1}
