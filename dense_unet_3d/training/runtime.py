@@ -381,12 +381,35 @@ def describe_schedule(config: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("scheduler_gamma must be finite and nonnegative")
         if not finite_nonnegative(initial_lr):
             raise ValueError("learning_rate must be finite and nonnegative")
+    training_pass = training.get("step_unit") == "training_pass"
+    if training_pass:
+        with open(config["experiment"]["split_manifest"]) as stream:
+            n_train = len(json.load(stream)["case_ids"]["train"])
+        passes = config["dataset"]["passes_per_epoch"]
+        batch_size = config["dataset"]["batch_size"]
+        if n_train < 1 or any(type(v) is not int or v < 1 for v in (passes, batch_size)):
+            raise ValueError("training_pass needs positive passes_per_epoch, batch_size and cases")
+        samples_per_epoch = passes * n_train
+        updates_per_epoch = math.ceil(samples_per_epoch / batch_size)
     for phase, default in (("phase_a", 100), ("phase_b", 1000)):
         epochs = training.get(phase + "_epochs", default)
         steps = training.get(phase + "_steps_per_epoch", training.get("steps_per_epoch", 10))
         if type(epochs) is not int or type(steps) is not int or min(epochs, steps) < 1:
             raise ValueError("Phase epochs and steps must be positive integers")
+        if training_pass:
+            if steps != passes:
+                raise ValueError(
+                    f"training.{phase}_steps_per_epoch must equal dataset.passes_per_epoch "
+                    f"under training_pass ({steps} != {passes})"
+                )
+            steps = updates_per_epoch
         phases[phase] = {"epochs": epochs, "steps_per_epoch": steps, "updates": epochs * steps}
+        if training_pass:
+            phases[phase].update(
+                step_unit="training_pass",
+                passes_per_epoch=passes,
+                samples_per_epoch=samples_per_epoch,
+            )
         if scheduler_enabled:
             try:
                 final_factor = gamma ** ((epochs - 1) // step)
@@ -405,6 +428,9 @@ def describe_schedule(config: dict[str, Any]) -> dict[str, Any]:
                 "final_epoch": final_epoch_lr,
                 "after_phase": after_phase_lr,
             }
+            if training_pass:
+                phases[phase]["samples_per_lr_plateau"] = step * samples_per_epoch
+                phases[phase]["updates_per_lr_plateau"] = step * steps
             if final_factor < 1e-6:
                 schedule_warnings.append(
                     f"{phase}: final-epoch LR is {final_epoch_lr:.6g} "
@@ -414,13 +440,16 @@ def describe_schedule(config: dict[str, Any]) -> dict[str, Any]:
     cadence = config.get("runtime", {}).get("validation_every", 1)
     if type(cadence) is not int or cadence < 1:
         raise ValueError("runtime.validation_every must be a positive integer")
-    return {
+    schedule = {
         "phases": phases,
         "validation_every": cadence,
         "total_updates": sum(p["updates"] for p in phases.values()),
         "recovery_every": 1,
         "warnings": schedule_warnings,
     }
+    if training_pass:
+        schedule["fidelity"] = config["experiment"]["fidelity"]
+    return schedule
 
 
 def _clean_json(value: Any) -> Any:
@@ -461,6 +490,7 @@ class RunSession:
 
         effective_config = copy.deepcopy(config)
         effective_config.setdefault("runtime", {})["wall_seconds"] = self.wall_seconds
+        effective_config["runtime"]["budget_seconds"] = self.budget_seconds
         validate_experiment(effective_config)
         for value in (self.wall_seconds, self.budget_seconds):
             if value is not None and (not math.isfinite(value) or value <= 0):
