@@ -152,10 +152,17 @@ The `experiment.fidelity` block of `configs/reconstruction-run.yaml` (and the sm
 
 ## Results
 
-Filled after the run. Nothing below is a measurement yet.
+The full-run lines are filled after the run.
 
-- Split manifest (`docs/research/2026-10-21-split-manifest.json`): TBD
-- Bounded smoke (`configs/reconstruction-smoke.yaml`): measured s/sample and projected full-run time: TBD
+- Split manifest (`docs/research/2026-10-21-split-manifest.json`): 101 train / 25 validation of 126 valid cases (48-52 excluded); 90 and 23 cases with tumor. `preflight --full-decode` passes.
+- Bounded smoke (`configs/reconstruction-smoke.yaml`, RTX 5070 Ti, FP32 + TF32, cuDNN benchmark, batch 2, 4 workers, no other GPU job), 2026-10-21:
+  - Startup (preflight full decode + foreground index build): ~740 s per invocation.
+  - Training: 318 / 307 / 301 s per 1,010-sample epoch = **0.30-0.32 s/sample**, below the 0.5 s/sample bf16 threshold, so autocast stays off.
+  - Validation (25 cases, inference batch 2): 478 / 439 / 431 s.
+  - Loss 0.207 → 0.177 (Phase A epochs 1-2) → 0.169 (Phase B epoch 1); per-case Dice liver 0.24 → 0.37 → 0.43, tumor 0.014 → 0.030 → 0.036; 16.6 M class-2 voxels predicted in Phase A epoch 1. All losses finite.
+  - Stop/resume: stopped at the epoch-0 boundary, then again during Phase A epoch 2 validation. The interrupted validation published nothing and epoch 2 replayed from the epoch-1 boundary. Resumed to completion; 4,266 s cumulative of the 5,400 s budget.
+  - GPU batch 1 vs batch 2 labels on validation case 3 (512×512×534): 4,685 of 139,984,896 voxels differ (0.0033 %, limit 0.01 %).
+  - Projected full run: 200 × ~305 s training + 20 validations × ~440 s + startup ≈ 19.6 h, inside the 48 h budget and likely inside one 24 h invocation.
 - Full run: validation curve (liver and tumor Dice per case, every 10 epochs), best epoch and score: TBD
 - Tumor Dice nonzero on the 25-case holdout: TBD
 - Local holdout numbers are not comparable to the paper's hidden 70-volume test set.
