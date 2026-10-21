@@ -190,7 +190,8 @@ def prepare_dataset(
     :param train:   boolean to tell whether to pull training or testing images
     :param detect_tumors: when ``False``, collapse tumour label 2 to liver
         label 1 for the Phase A liver-only task.
-    :return:        a created LITSDataset class
+    :return:        LITSDataset, NativeSlabDataset (native slabs/tiles), or
+        ForegroundCropDataset (foreground_crops_v1 training)
     """
     if train:
         img_dirs = config["pathing"]["train_img_dirs"]
@@ -268,7 +269,8 @@ def prepare_dataloader(
     :param detect_tumors: when ``False``, return liver-only labels for Phase A.
     :return:        DataLoader class with dataset loaded
     """
-    dataset = prepare_dataset(config, train, detect_tumors=detect_tumors)
+    # Validate loader keys before building the dataset: crop datasets hash and index
+    # every training mask first.
     batch_size = config["dataset"]["batch_size"]
     options: dict[str, Any] = {}
     if train:
@@ -281,14 +283,20 @@ def prepare_dataloader(
         for name, value in (("pin_memory", pin_memory), ("persistent_workers", persistent)):
             if not isinstance(value, bool):
                 raise ValueError(f"dataset.{name} must be a boolean")
+        if persistent and num_workers == 0:
+            raise ValueError("dataset.persistent_workers requires dataset.num_workers > 0")
+        if (
+            dataset_config.get("training_representation") == "foreground_crops_v1"
+            and dataset_config.get("shuffle", True) is not True
+        ):
+            raise ValueError("foreground_crops_v1 requires dataset.shuffle to be absent or true")
         options = {
             "num_workers": num_workers,
             "pin_memory": pin_memory,
-            "persistent_workers": persistent and num_workers > 0,
+            "persistent_workers": persistent,
         }
+    dataset = prepare_dataset(config, train, detect_tumors=detect_tumors)
     if isinstance(dataset, ForegroundCropDataset):
-        if config["dataset"].get("shuffle", True) is not True:
-            raise ValueError("foreground_crops_v1 requires dataset.shuffle to be absent or true")
         generator = torch.Generator().manual_seed(dataset.geometry["sampling_seed"])
         return DataLoader(
             dataset=dataset,

@@ -62,6 +62,23 @@ def test_floor_count_caps_stride_positions(tree):
     # 10 * 0.3 = 3 -> floor 3; stride round(1/0.3) = 3 -> positions {o, o+3, o+6, o+9} capped to 3
     manifest = _build(tree, fraction=0.3)
     assert manifest["counts"]["validation"] == 3
+    assert manifest["stratification"] == "tumor_voxel_count_every_3th"
+
+
+def test_fraction_short_of_floor_count_rejected(tree):
+    # floor(10 * 0.6) = 6 but stride round(1/0.6) = 2 reaches only 5 positions.
+    with pytest.raises(ValueError, match="not floor"):
+        _build(tree, fraction=0.6)
+
+
+def test_tumor_ties_break_on_case_id(tmp_path):
+    counts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    manifest = msm.build_manifest(
+        discover_pairs(_write_tree(tmp_path / "ties", counts)), validation_fraction=0.2, seed=7
+    )
+    order = sorted(f"-{k}" for k in range(10))
+    offset = random.Random(7).randrange(5)
+    assert manifest["case_ids"]["validation"] == sorted([order[offset], order[offset + 5]])
 
 
 def test_deterministic_and_schema(tree):
@@ -135,3 +152,15 @@ def test_link_root_must_be_empty(tree, tmp_path):
     (root / "stale").write_text("x")
     with pytest.raises(ValueError, match="not empty"):
         msm.link_split(_build(tree), discover_pairs(tree), root)
+
+
+def test_cli_rejects_non_empty_link_root_before_hashing(tree, tmp_path, monkeypatch):
+    root = tmp_path / "links"
+    root.mkdir()
+    (root / "stale").write_text("x")
+    monkeypatch.setattr(msm, "build_manifest", lambda *a, **k: pytest.fail("hashed first"))
+    argv = ["make_split_manifest.py", "--seed", "7", "--validation-fraction", "0.2"]
+    argv += ["--output", str(tmp_path / "m.json"), "--link-root", str(root), *tree]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(ValueError, match="not empty"):
+        msm.main()

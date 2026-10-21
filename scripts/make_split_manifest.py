@@ -24,8 +24,6 @@ import numpy as np
 
 from dense_unet_3d.dataset.LITSDataset import _case_id, discover_pairs
 
-STRATIFICATION = "tumor_voxel_count_every_5th"
-
 
 def _sha256(path: str) -> str:
     digest = hashlib.sha256()
@@ -75,6 +73,11 @@ def build_manifest(
     stride = round(1 / validation_fraction)
     offset = random.Random(seed).randrange(stride)
     chosen = set(range(offset, len(rows), stride)[:count])
+    if len(chosen) != count:
+        raise ValueError(
+            f"validation fraction {validation_fraction} gives {len(chosen)} every-{stride}th "
+            f"positions, not floor(N * fraction) = {count}"
+        )
     for position, row in enumerate(rows):
         row["split"] = "validation" if position in chosen else "train"
     case_ids = {
@@ -102,7 +105,7 @@ def build_manifest(
             for row in per_case
         ],
         "seed": seed,
-        "stratification": STRATIFICATION,
+        "stratification": f"tumor_voxel_count_every_{stride}th",
         "validation_fraction": validation_fraction,
         "generator_revision": _generator_revision(),
     }
@@ -132,6 +135,10 @@ def main() -> None:
     parser.add_argument("--link-root")
     parser.add_argument("img_dirs", nargs="+", metavar="DIR")
     args = parser.parse_args()
+    if args.link_root is not None:
+        root = Path(args.link_root)
+        if root.exists() and any(root.iterdir()):
+            raise ValueError(f"link root is not empty: {root}")
     pairs = discover_pairs(args.img_dirs)
     manifest = build_manifest(pairs, validation_fraction=args.validation_fraction, seed=args.seed)
     if args.link_root is not None:

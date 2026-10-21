@@ -201,6 +201,17 @@ def _loader_identity(loader: DataLoader | None, file_cache: dict[str, Any] | Non
             "items use process-local randomness; workers, pin_memory and persistent_workers "
             "are supported only for NativeSlabDataset and ForegroundCropDataset"
         )
+    # A persistent-worker iterator draws its base seed from the global torch RNG only
+    # once, so after a resume an unseeded RandomSampler draws a different permutation.
+    if (
+        loader.persistent_workers
+        and type(loader.sampler) is RandomSampler
+        and loader.sampler.generator is None
+    ):
+        raise ValueError(
+            "Exact resume refuses persistent_workers with a RandomSampler that has no "
+            "generator: the global RNG stream shifts across a resume"
+        )
     from torch.utils.data._utils.collate import default_collate
 
     if loader.collate_fn is not default_collate:

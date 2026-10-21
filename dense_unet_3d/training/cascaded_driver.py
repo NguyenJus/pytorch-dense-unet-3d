@@ -258,7 +258,7 @@ def _run_epoch(
     # rebuild it per step inside the loop.
     criterion = get_criterion(config, device=device)
 
-    autocast_mode = config.get("execution", {}).get("autocast", "none")
+    autocast_mode = (config.get("execution") or {}).get("autocast", "none")
     if autocast_mode not in ("none", "bf16"):
         raise ValueError(f"execution.autocast must be 'none' or 'bf16', got {autocast_mode!r}")
 

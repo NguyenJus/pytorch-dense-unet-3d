@@ -86,7 +86,7 @@ Expected update counts (N_train = 105, batch 2): 525 updates/epoch, 52,500 per p
 
 ## 3. Plan-level decisions
 
-These resolve places where the design was silent or self-inconsistent; the owner accepted them.
+These resolve places where the design was silent or self-inconsistent; the owner's delegate accepted them on 2026-10-21.
 
 - **D1 Split membership.** `make_split_manifest.py --link-root DIR` also writes symlink trees `DIR/train/` and `DIR/validation/` (original file basenames kept). The config points `train_img_dirs`/`test_img_dirs` at those trees, so `_validate_split_manifest` (discovered cases must equal the manifest set) and the overlap checks stay unchanged.
 - **D2 Inference representation key.** The design's `inference_representation` is the existing `dataset.inplane_representation: native_tiles_v1`. The new key is `dataset.training_representation: foreground_crops_v1`.

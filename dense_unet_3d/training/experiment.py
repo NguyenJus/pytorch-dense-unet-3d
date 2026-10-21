@@ -42,7 +42,11 @@ def preprocessing_identity(config: dict[str, Any]) -> dict[str, Any]:
     """Identify preprocessing code semantics that configuration alone cannot express."""
     from dense_unet_3d.dataset.prepare_dataset import sampling_mode
 
-    if config.get("dataset", {}).get("training_representation") == "foreground_crops_v1":
+    dataset = config.get("dataset")
+    if (
+        isinstance(dataset, dict)
+        and dataset.get("training_representation") == "foreground_crops_v1"
+    ):
         from dense_unet_3d.dataset.foreground_crops import crop_config
         from dense_unet_3d.dataset.slabs import spatial_config
 

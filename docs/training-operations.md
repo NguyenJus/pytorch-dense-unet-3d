@@ -197,6 +197,9 @@ state and cumulative timing are restored. Data iteration restarts at the epoch
 boundary with the saved RNG state. Supported exact ordering uses zero-worker
 standard DataLoaders/default collation with TensorDataset, LiTS dataset or Subset
 and supported sequential/random samplers; unsupported loader types are refused.
+Training loaders over `NativeSlabDataset` or `ForegroundCropDataset` may use
+workers; with workers, continuation is epoch-exact rather than bitwise (see the
+paper-faithful run below).
 Generator sharing and the ordered parameters of repository preprocessing
 transforms (including `torchvision.Compose` pipelines) belong to that identity.
 Custom transform callables or extra transform state are refused because their
@@ -278,13 +281,14 @@ by a software test or diagnostic result.
 
 The [gate ledger](research/2026-09-30-reconstruction-implementation.md) supersedes
 historical fidelity assumptions. Reference configuration is deliberately
-unlaunchable; only the explicit bounded diagnostic config may use the managed
-training entry point. Unmanaged `train()`/`run_phase_a()`/`run_phase_b()` reject
+unlaunchable; the managed training entry point accepts only the bounded
+diagnostic config and the labelled `mode: training` run below. Unmanaged `train()`/`run_phase_a()`/`run_phase_b()` reject
 reconstruction configs because they cannot enforce that allocation contract.
 
 `native_slabs` keeps all native depth slices and maps H/W on the shared half-pixel
 grid. Padding target `-100` is excluded from voxel-mean CE. Augmentation is
-explicitly disabled pending its research gate. The all-case component census
+disabled for `native_tiles_v1`; only `foreground_crops_v1` training (below)
+applies the paper's scale/mirror. The all-case component census
 rejects the selected full-FOV resize for long training; see the ledger for the
 negative evidence and native tile follow-up. Both phases preserve labels 0/1/2.
 
@@ -366,8 +370,9 @@ dense-unet-3d train --config configs/reconstruction-smoke.yaml --wall-seconds 54
 # 3. Day one: the invocation limit ends in a safe stop at an epoch boundary.
 dense-unet-3d train --config configs/reconstruction-run.yaml \
   --wall-seconds 86400 --budget-seconds 172800
-# Optional earlier safe stop, from another terminal.
-dense-unet-3d stop --run-dir models/paper-faithful-20261021 --wait-seconds 300
+# Optional earlier safe stop, from another terminal. Stop lands at an epoch
+# boundary; one epoch plus a validation can take ~20 min, so wait long enough.
+dense-unet-3d stop --run-dir models/paper-faithful-20261021 --wait-seconds 1500
 # Day two: an ordinary resume; the persisted 48 h budget carries over.
 dense-unet-3d resume --config configs/reconstruction-run.yaml --wall-seconds 86400
 ```

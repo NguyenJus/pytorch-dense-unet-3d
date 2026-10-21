@@ -19,6 +19,7 @@ import torch
 import yaml
 from torch.utils.data import RandomSampler, SequentialSampler
 
+import dense_unet_3d.dataset.prepare_dataset as prepare_dataset_module
 from dense_unet_3d.dataset.foreground_crops import CropSampler, ForegroundCropDataset
 from dense_unet_3d.dataset.prepare_dataset import (
     compose_transforms,
@@ -383,6 +384,27 @@ class TestForegroundCropWiring:
             prepare_dataloader(_crop_split(tmp_path, persistent_workers="yes"), train=True)
         with pytest.raises(ValueError, match="shuffle"):
             prepare_dataloader(_crop_split(tmp_path, shuffle=False), train=True)
+
+    @pytest.mark.parametrize(
+        ("overrides", "match"),
+        [
+            ({"num_workers": -1}, "num_workers must be a non-negative integer"),
+            ({"num_workers": True}, "num_workers must be a non-negative integer"),
+            ({"num_workers": "4"}, "num_workers must be a non-negative integer"),
+            ({"pin_memory": "yes"}, "pin_memory must be a boolean"),
+            ({"persistent_workers": True}, "persistent_workers requires"),
+            ({"shuffle": False}, "shuffle"),
+        ],
+    )
+    def test_loader_keys_rejected_before_dataset_is_built(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, overrides: dict, match: str
+    ) -> None:
+        cfg = _crop_split(tmp_path, **overrides)
+        monkeypatch.setattr(
+            prepare_dataset_module, "prepare_dataset", lambda *a, **k: pytest.fail("built")
+        )
+        with pytest.raises(ValueError, match=match):
+            prepare_dataloader(cfg, train=True)
 
     def test_augmentation_flags_still_rejected_for_plain_native_tiles(self) -> None:
         cfg = _config("unused")

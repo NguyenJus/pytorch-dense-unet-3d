@@ -592,18 +592,27 @@ def worker_loader(kind, directory, **options):
 
 @pytest.mark.parametrize("kind", ["crop", "native"])
 def test_workers_accepted_for_index_carried_randomness(tmp_path, kind):
-    loader = worker_loader(kind, tmp_path, num_workers=2, pin_memory=True, persistent_workers=True)
+    persistent = kind == "crop"
+    loader = worker_loader(
+        kind, tmp_path, num_workers=2, pin_memory=True, persistent_workers=persistent
+    )
     identity = recovery._loader_identity(loader)
     assert identity["sampler"] == ("CropSampler" if kind == "crop" else "RandomSampler")
     assert identity["workers"] == {
         "num_workers": 2,
         "pin_memory": True,
-        "persistent_workers": True,
+        "persistent_workers": persistent,
         "prefetch_factor": 2,
     }
     default = recovery._loader_identity(worker_loader(kind, tmp_path))
     assert "workers" not in default
     assert default["dataset"] == identity["dataset"]
+
+
+def test_persistent_workers_refused_for_unseeded_random_sampler(tmp_path):
+    loader = worker_loader("native", tmp_path, num_workers=2, persistent_workers=True)
+    with pytest.raises(ValueError, match="persistent_workers with a RandomSampler"):
+        recovery._loader_identity(loader)
 
 
 def test_workers_refused_for_lits_and_worker_init_fn(tmp_path):

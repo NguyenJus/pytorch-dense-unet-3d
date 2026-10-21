@@ -81,9 +81,11 @@ def predict_volume(
     if not np.isfinite(array).all():
         kind = "tile" if native_tiles else "slab"
         raise ValueError(f"image {kind} contains nonfinite values")
+    if isinstance(input_img.dataobj, np.ndarray) and np.shares_memory(array, input_img.dataobj):
+        array = array.copy()  # the in-place clamp below must not modify the caller's image
     volume = torch.from_numpy(array).permute(2, 0, 1)
     if geometry["clamp_hu"]:
-        volume = volume.clamp(geometry["hu_low"], geometry["hu_high"])
+        volume.clamp_(geometry["hu_low"], geometry["hu_high"])
 
     def window(start: tuple[int, int, int], valid: tuple[int, int, int]) -> torch.Tensor:
         """Fixed CDHW model input, equal to image_tile / image_slab on the same source."""
