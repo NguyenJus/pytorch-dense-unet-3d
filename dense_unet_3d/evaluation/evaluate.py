@@ -95,6 +95,7 @@ def _evaluate_native_cases(
         },
         "clamp_hu": dataset.geometry["clamp_hu"],
         "clamp_hu_range": {"min": dataset.geometry["hu_low"], "max": dataset.geometry["hu_high"]},
+        "inference_batch": dataset.inference_batch,
     }
     for case_index, (image_path, target_path) in enumerate(dataset.cases):
         if max_cases is not None and case_index >= max_cases:
