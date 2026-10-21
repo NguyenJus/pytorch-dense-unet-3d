@@ -6,7 +6,11 @@ from torch import nn
 
 from dense_unet_3d.cli import _load_model_from_checkpoint, _TinyStub
 from dense_unet_3d.model.config import canonical_model_config
-from dense_unet_3d.training.experiment import experiment_metadata, preprocessing_identity
+from dense_unet_3d.training.experiment import (
+    configure_execution,
+    experiment_metadata,
+    preprocessing_identity,
+)
 
 
 def test_synthetic_checkpoint_cannot_impersonate_named_graph(tmp_path):
@@ -65,6 +69,64 @@ def test_inference_restores_execution_and_rejects_preprocessing_mismatch(tmp_pat
         wrong["sampling"] = "whole_volume"
         with pytest.raises(ValueError, match="preprocessing mismatch"):
             _load_model_from_checkpoint(str(path), torch.device("cpu"), {"dataset": wrong})
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = prior[0]
+        torch.backends.cudnn.allow_tf32 = prior[1]
+        torch.backends.cudnn.benchmark = prior[2]
+        torch.backends.cudnn.deterministic = prior[3]
+        torch.use_deterministic_algorithms(prior[4])
+
+
+def test_training_run_execution_and_crop_identity_round_trip(tmp_path):
+    path = tmp_path / "training.pt"
+    model = _TinyStub(nn.Conv3d(1, 3, 1))
+    config = {
+        "dataset": {
+            "sampling": "native_slabs",
+            "inplane_representation": "native_tiles_v1",
+            "resize_img": False,
+            "training_representation": "foreground_crops_v1",
+            "passes_per_epoch": 10,
+            "tumor_centre_probability": 0.5,
+            "foreground_voxel_cache": 20000,
+            "sampling_seed": 20261021,
+            "random_hflip": True,
+            "random_hflip_probability": 0.5,
+            "scale_img": True,
+            "scale_img_range": {"min": 0.8, "max": 1.2},
+        },
+        "execution": {
+            "precision": "fp32",
+            "tf32": True,
+            "deterministic": False,
+            "cudnn_benchmark": True,
+            "autocast": "bf16",
+        },
+    }
+    torch.save({"model_state_dict": model.state_dict(), **experiment_metadata(config)}, path)
+    prior = (
+        torch.backends.cuda.matmul.allow_tf32,
+        torch.backends.cudnn.allow_tf32,
+        torch.backends.cudnn.benchmark,
+        torch.backends.cudnn.deterministic,
+        torch.are_deterministic_algorithms_enabled(),
+    )
+    try:
+        torch.use_deterministic_algorithms(True)
+        _load_model_from_checkpoint(str(path), torch.device("cpu"), config)
+        assert torch.backends.cuda.matmul.allow_tf32
+        assert torch.backends.cudnn.allow_tf32
+        assert torch.backends.cudnn.benchmark
+        assert not torch.backends.cudnn.deterministic
+        assert not torch.are_deterministic_algorithms_enabled()
+        wrong = deepcopy(config)
+        wrong["dataset"]["sampling_seed"] = 1
+        with pytest.raises(ValueError, match="preprocessing implementation mismatch"):
+            _load_model_from_checkpoint(str(path), torch.device("cpu"), wrong)
+        strict = deepcopy(config)
+        strict["execution"].update({"deterministic": True})
+        with pytest.raises(ValueError, match="deterministic excludes cudnn_benchmark"):
+            configure_execution(strict)
     finally:
         torch.backends.cuda.matmul.allow_tf32 = prior[0]
         torch.backends.cudnn.allow_tf32 = prior[1]
