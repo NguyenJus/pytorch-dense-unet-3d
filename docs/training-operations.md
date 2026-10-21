@@ -342,3 +342,41 @@ The inspected package pins are in
 eval-mode readiness remains inconclusive and its acceptance criterion was unmet; the selected mode is a diagnostic candidate, not a
 numerically certified production configuration. Follow [#19](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/19)
 for required isolation before another learning-readiness claim.
+
+### Paper-faithful run (2026-10-21)
+
+`configs/reconstruction-run.yaml` is the launchable `mode: training` protocol;
+its fidelity labels are in the
+[run ledger](research/2026-10-21-paper-faithful-run.md). One step is one pass
+over the training cases, so an epoch is 10 passes (525 updates at 105 cases,
+batch 2). `configs/reconstruction-smoke.yaml` differs only in run name,
+epochs (2 + 1), validation cadence and budget. Unlike the execution reference
+above, `mode: training` runs with TF32 and cuDNN benchmark enabled and
+deterministic algorithms off; diagnostic and reference modes keep the strict
+FP32 reference. GPU runs need separate owner authorization.
+
+```bash
+# 1. Split (CPU): 105 train / 26 validation, plus symlink trees for the config.
+python scripts/make_split_manifest.py --seed 20261021 --validation-fraction 0.2 \
+  --output docs/research/2026-10-21-split-manifest.json \
+  --link-root data/splits/2026-10-21 <LiTS batch dirs...>
+# 2. Preflight, then the bounded smoke; project s/sample to the full budget.
+dense-unet-3d preflight --config configs/reconstruction-run.yaml --full-decode
+dense-unet-3d train --config configs/reconstruction-smoke.yaml --wall-seconds 5400
+# 3. Day one: the invocation limit ends in a safe stop at an epoch boundary.
+dense-unet-3d train --config configs/reconstruction-run.yaml \
+  --wall-seconds 86400 --budget-seconds 172800
+# Optional earlier safe stop, from another terminal.
+dense-unet-3d stop --run-dir models/paper-faithful-20261021 --wait-seconds 300
+# Day two: an ordinary resume; the persisted 48 h budget carries over.
+dense-unet-3d resume --config configs/reconstruction-run.yaml --wall-seconds 86400
+```
+
+Resume uses the original configuration and run directory. `--recover` is only
+for a failed or lost attempt (see
+[Resume and crash/reboot recovery](#resume-and-crashreboot-recovery)), and the
+run's `runtime.max_retries: 0` grants no retry allowance. With
+`num_workers > 0`, continuation is epoch-exact, not bitwise: the sampler
+generator is restored at the epoch boundary, so the crop parameters replay
+exactly, but worker scheduling and floating-point reduction order may differ.
+Compare scheduler state, history and best score, not weights.
