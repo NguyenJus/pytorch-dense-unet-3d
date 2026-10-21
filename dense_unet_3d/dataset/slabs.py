@@ -128,6 +128,14 @@ def image_slab(image: SpatialImage, start: int, geometry: dict) -> tuple[torch.T
     return tensor, depth
 
 
+def inference_batch(config: dict) -> int:
+    """Validated forward-pass batch size; execution-only, never part of the geometry."""
+    value = config.get("inference_batch", 8)
+    if type(value) is not int or value < 1:
+        raise ValueError("inference_batch must be a positive integer")
+    return value
+
+
 class NativeSlabDataset(Dataset):
     """Stable sample index and explicit source/model physical coordinate maps.
 
@@ -139,10 +147,7 @@ class NativeSlabDataset(Dataset):
         if not detect_tumors:
             raise ValueError("native_slabs requires the three-class target contract")
         self.geometry = spatial_config(config)
-        inference_batch = config.get("inference_batch", 8)
-        if type(inference_batch) is not int or inference_batch < 1:
-            raise ValueError("inference_batch must be a positive integer")
-        self.inference_batch = inference_batch
+        self.inference_batch = inference_batch(config)
         self.detect_tumors = detect_tumors
         self.crop_to_liver = False
         self.cases = discover_pairs(img_dirs)

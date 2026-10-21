@@ -234,3 +234,13 @@ def test_native_tile_audit_physical_units(unit, scale, disposition):
     image = nib.Nifti1Image(np.zeros((1, 1, 1)), np.eye(4))
     image.header.set_xyzt_units(unit)
     assert physical_units(image) == (unit, scale, disposition)
+
+
+def test_inference_batch_helper_default_and_validation():
+    from dense_unet_3d.dataset.slabs import inference_batch
+
+    assert inference_batch({}) == 8
+    assert inference_batch({"inference_batch": 3}) == 3
+    for bad in (0, -1, True, 2.0):
+        with pytest.raises(ValueError, match="inference_batch must be a positive integer"):
+            inference_batch({"inference_batch": bad})

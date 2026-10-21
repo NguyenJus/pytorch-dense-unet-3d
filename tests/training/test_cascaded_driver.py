@@ -1114,7 +1114,12 @@ class _AutocastProbe(_TinyModel):
 def _one_step(tmp_path, execution: dict | None, model: nn.Module) -> tuple[float, dict]:
     cfg = _base_cfg(str(tmp_path), use_scheduler=False)
     if execution is not None:
-        cfg["execution"] = execution
+        cfg["execution"] = {
+            "precision": "fp32",
+            "tf32": False,
+            "deterministic": True,
+            **execution,
+        }
     diagnostics: dict = {}
     loss = _run_epoch(
         config=cfg,
@@ -1150,4 +1155,11 @@ def test_unknown_autocast_value_rejected(tmp_path) -> None:
     model = _AutocastProbe()
     with pytest.raises(ValueError, match="autocast"):
         _one_step(tmp_path, {"autocast": "fp16"}, model)
+    assert model.seen == []
+
+
+def test_invalid_execution_block_rejected_by_shared_validation(tmp_path) -> None:
+    model = _AutocastProbe()
+    with pytest.raises(ValueError, match="Unsupported execution settings"):
+        _one_step(tmp_path, {"tf32": "yes"}, model)
     assert model.seen == []

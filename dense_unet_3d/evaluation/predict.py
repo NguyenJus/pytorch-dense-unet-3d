@@ -12,6 +12,7 @@ from nibabel.spatialimages import SpatialImage
 from torch import nn
 
 from dense_unet_3d.dataset.slabs import (
+    inference_batch,
     pad_tile,
     slab_starts,
     spatial_config,
@@ -45,9 +46,7 @@ def predict_volume(
     if len(input_img.shape) != 3 or min(input_img.shape) < 1:
         raise ValueError("inference input must be a nonempty 3-D image")
     geometry = spatial_config(dataset_config)
-    batch_size = dataset_config.get("inference_batch", 8)
-    if type(batch_size) is not int or batch_size < 1:
-        raise ValueError("inference_batch must be a positive integer")
+    batch_size = inference_batch(dataset_config)
     height, width, depth = input_img.shape
     output = np.empty((height, width, depth), dtype=np.uint8)
     native_tiles = geometry["representation"] == "native_tiles_v1"

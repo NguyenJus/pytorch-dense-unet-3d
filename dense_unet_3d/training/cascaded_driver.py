@@ -57,7 +57,11 @@ from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dense_unet_3d.training.experiment import checkpoint_model_metadata, experiment_metadata
+from dense_unet_3d.training.experiment import (
+    _execution_settings,
+    checkpoint_model_metadata,
+    experiment_metadata,
+)
 from dense_unet_3d.training.loss import IGNORE_INDEX, get_criterion
 from dense_unet_3d.training.train import (
     get_optimizer,
@@ -258,9 +262,8 @@ def _run_epoch(
     # rebuild it per step inside the loop.
     criterion = get_criterion(config, device=device)
 
-    autocast_mode = (config.get("execution") or {}).get("autocast", "none")
-    if autocast_mode not in ("none", "bf16"):
-        raise ValueError(f"execution.autocast must be 'none' or 'bf16', got {autocast_mode!r}")
+    execution = config.get("execution")
+    autocast_mode = "none" if execution is None else _execution_settings(execution)["autocast"]
 
     if diagnostics is not None:
         diagnostics.clear()
