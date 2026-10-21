@@ -35,7 +35,7 @@ dataset:
   tumor_centre_probability: 0.5
   foreground_voxel_cache: 20000
   sampling_seed: 20261021
-  inference_batch: 8
+  inference_batch: 2
   num_workers: 4
   pin_memory: true
   persistent_workers: true

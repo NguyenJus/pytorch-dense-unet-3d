@@ -86,6 +86,8 @@ Expected update counts (N_train = 105, batch 2): 525 updates/epoch, 52,500 per p
 
 **As-run amendment (2026-10-21, owner decision).** The tables above are the design as specified. Preflight rejected LiTS cases 48-52: their segmentations carry an identity affine while the volumes carry the scanner geometry, so the image/mask grid check fails. The 2026-09-30 split had already held only the other 126 cases. The owner chose to exclude the five rather than repair their headers; `make_split_manifest.py` records them under `excluded` with the reason and hashes. The as-run split is **101 train / 25 validation**, and the counts become 505 updates/epoch, 50,500 per phase, 101,000 total; 202,000 sample presentations.
 
+**As-run amendment (2026-10-21, smoke): inference batch 2, not 8.** The first GPU smoke failed in its first validation with `CUDA error: unknown error`, and the WSL driver logged `dxgkio_make_resident: Ioctl failed: -12` (out of memory). Measured on the RTX 5070 Ti (16 GiB), eval/no-grad, 12×224×224 tiles, TF32 on: without cuDNN benchmark the peak is 1.76 / 3.27 / 6.30 / 12.35 GiB at batch 1 / 2 / 4 / 8, about 1.5 GiB per tile. With benchmark the warm forward costs 0.035 s/tile at batch 2, 0.033 at batch 4 and 0.040 at batch 8. Batch 8 cannot fit next to the training state, so `dataset.inference_batch` is 2 in both configs (spec §5 OOM fallback). This is engineering, not fidelity; predictions are array-equal across batch sizes on CPU.
+
 ## 3. Plan-level decisions
 
 These resolve places where the design was silent or self-inconsistent; the owner's delegate accepted them on 2026-10-21.
