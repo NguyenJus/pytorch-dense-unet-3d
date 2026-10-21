@@ -6,6 +6,7 @@ import json
 import os
 import random
 import signal
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -530,3 +531,109 @@ def test_custom_dataset_subclasses_refused(kind):
     dataset = CustomTensorDataset(*base.tensors) if kind == "tensor" else CustomSubset(base, [0])
     with pytest.raises(ValueError, match="Exact resume supports only"):
         recovery._dataset_identity(dataset)
+
+
+def crop_case_dir(directory):
+    import nibabel as nib
+
+    directory.mkdir(exist_ok=True)
+    for i in range(2):
+        labels = np.zeros((8, 8, 6), dtype=np.uint8)
+        labels[2:6, 2:6, 1:5] = 1
+        labels[3:5, 3:5, 2:4] = 2 * (i == 0)
+        for name, array in (
+            (f"volume-{i}.nii", labels.astype(np.float32)),
+            (f"segmentation-{i}.nii", labels),
+        ):
+            if not (directory / name).exists():
+                nib.save(nib.Nifti1Image(array, np.eye(4)), directory / name)
+    return directory
+
+
+def crop_dataset_config(**update):
+    return {
+        "resize_dims": {"D": 4, "H": 8, "W": 8},
+        "clamp_hu": False,
+        "sampling": "native_slabs",
+        "resize_img": False,
+        "inplane_representation": "native_tiles_v1",
+        "training_representation": "foreground_crops_v1",
+        "passes_per_epoch": 2,
+        "tumor_centre_probability": 0.5,
+        "foreground_voxel_cache": 50,
+        "sampling_seed": 7,
+        "random_hflip": True,
+        "random_hflip_probability": 0.5,
+        "scale_img": True,
+        "scale_img_range": {"min": 0.8, "max": 1.2},
+        "batch_size": 2,
+        **update,
+    }
+
+
+def worker_loader(kind, directory, **options):
+    from dense_unet_3d.dataset.foreground_crops import CropSampler, ForegroundCropDataset
+    from dense_unet_3d.dataset.LITSDataset import LITSDataset
+    from dense_unet_3d.dataset.slabs import NativeSlabDataset
+
+    crop_case_dir(directory)
+    if kind == "crop":
+        dataset = ForegroundCropDataset([str(directory)], crop_dataset_config())
+        sampler = CropSampler(len(dataset), torch.Generator().manual_seed(5))
+        return DataLoader(dataset, batch_size=2, sampler=sampler, **options)
+    if kind == "native":
+        dataset = NativeSlabDataset(
+            [str(directory)], {"resize_dims": {"D": 4, "H": 8, "W": 8}, "clamp_hu": False}
+        )
+    else:
+        dataset = LITSDataset([str(directory)])
+    return DataLoader(dataset, batch_size=2, shuffle=True, **options)
+
+
+@pytest.mark.parametrize("kind", ["crop", "native"])
+def test_workers_accepted_for_index_carried_randomness(tmp_path, kind):
+    loader = worker_loader(kind, tmp_path, num_workers=2, pin_memory=True, persistent_workers=True)
+    identity = recovery._loader_identity(loader)
+    assert identity["sampler"] == ("CropSampler" if kind == "crop" else "RandomSampler")
+    assert identity["workers"] == {
+        "num_workers": 2,
+        "pin_memory": True,
+        "persistent_workers": True,
+        "prefetch_factor": 2,
+    }
+    default = recovery._loader_identity(worker_loader(kind, tmp_path))
+    assert "workers" not in default
+    assert default["dataset"] == identity["dataset"]
+
+
+def test_workers_refused_for_lits_and_worker_init_fn(tmp_path):
+    with pytest.raises(ValueError, match="num_workers=0 for LITSDataset"):
+        recovery._loader_identity(worker_loader("lits", tmp_path, num_workers=2))
+    with pytest.raises(ValueError, match="num_workers=0 for LITSDataset"):
+        recovery._loader_identity(worker_loader("lits", tmp_path, pin_memory=True))
+    with pytest.raises(ValueError, match="worker_init_fn"):
+        recovery._loader_identity(
+            worker_loader("crop", tmp_path, num_workers=2, worker_init_fn=print)
+        )
+
+
+def test_default_loader_identity_unchanged():
+    _, loader = setup()
+    identity = recovery._loader_identity(loader)
+    assert set(identity) == {
+        "dataset",
+        "batch_size",
+        "drop_last",
+        "sampler",
+        "replacement",
+        "num_samples",
+    }
+
+
+def test_crop_dataset_identity(tmp_path):
+    loader = worker_loader("crop", tmp_path)
+    identity = recovery._dataset_identity(loader.dataset)
+    assert identity["manifest"] == loader.dataset.manifest()
+    assert [[f["path"] for f in pair] for pair in identity["files"]] == [
+        [str(Path(name).resolve()) for name in pair] for pair in loader.dataset.cases
+    ]
