@@ -258,6 +258,10 @@ def _run_epoch(
     # rebuild it per step inside the loop.
     criterion = get_criterion(config, device=device)
 
+    autocast_mode = config.get("execution", {}).get("autocast", "none")
+    if autocast_mode not in ("none", "bf16"):
+        raise ValueError(f"execution.autocast must be 'none' or 'bf16', got {autocast_mode!r}")
+
     if diagnostics is not None:
         diagnostics.clear()
         diagnostics.update(
@@ -300,8 +304,13 @@ def _run_epoch(
         volume, segmentation = unpack_training_batch(batch, device)
 
         optimizer.zero_grad()
-        logits = model(volume)
-        loss = criterion(logits, segmentation)
+        # Autocast covers only forward + loss; backward, step and the
+        # finiteness checks stay outside it.
+        with torch.autocast(
+            device_type=device.type, dtype=torch.bfloat16, enabled=autocast_mode == "bf16"
+        ):
+            logits = model(volume)
+            loss = criterion(logits, segmentation)
         if not torch.isfinite(loss):
             raise FloatingPointError("Nonfinite training loss")
         loss.backward()
@@ -324,7 +333,7 @@ def _run_epoch(
             diagnostics["sampled_parameter_count"] = parameter_limit - remaining
             with torch.no_grad():
                 per_voxel = nn.functional.cross_entropy(
-                    logits.detach(),
+                    logits.detach().float(),
                     segmentation,
                     weight=getattr(criterion, "weight", None),
                     ignore_index=IGNORE_INDEX,

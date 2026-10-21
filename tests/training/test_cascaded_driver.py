@@ -1096,3 +1096,58 @@ def test_unmanaged_phases_reject_reconstruction_before_model_activity(phase: str
             else:
                 run_phase_b(cfg, model, torch.device("cpu"), _loader(), phase_a_best_path="missing")
     assert not (tmp_path / "test_cascaded").exists()
+
+
+class _AutocastProbe(_TinyModel):
+    """Tiny model recording whether autocast was active and the logits dtype."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen: list[tuple[bool, torch.dtype]] = []
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = super().forward(x)
+        self.seen.append((torch.is_autocast_enabled("cpu"), out.dtype))
+        return out
+
+
+def _one_step(tmp_path, execution: dict | None, model: nn.Module) -> tuple[float, dict]:
+    cfg = _base_cfg(str(tmp_path), use_scheduler=False)
+    if execution is not None:
+        cfg["execution"] = execution
+    diagnostics: dict = {}
+    loss = _run_epoch(
+        config=cfg,
+        model=model,
+        device=torch.device("cpu"),
+        loader=_loader(n=2),
+        optimizer=cascaded_mod.get_optimizer(model, cfg),
+        steps_per_epoch=1,
+        diagnostics=diagnostics,
+    )
+    return loss, diagnostics
+
+
+def test_bf16_autocast_wraps_forward_with_fp32_loss_and_params(tmp_path) -> None:
+    model = _AutocastProbe()
+    loss, diagnostics = _one_step(tmp_path, {"autocast": "bf16"}, model)
+    assert model.seen == [(True, torch.bfloat16)]
+    assert torch.isfinite(torch.tensor(loss))
+    assert all(p.dtype == torch.float32 for p in model.parameters())
+    assert diagnostics["updates"] == 1
+    assert diagnostics["gradient_l2_max"] > 0
+
+
+@pytest.mark.parametrize("execution", [None, {}, {"autocast": "none"}])
+def test_autocast_none_or_absent_is_unchanged(tmp_path, execution) -> None:
+    model = _AutocastProbe()
+    loss, _ = _one_step(tmp_path, execution, model)
+    assert model.seen == [(False, torch.float32)]
+    assert torch.isfinite(torch.tensor(loss))
+
+
+def test_unknown_autocast_value_rejected(tmp_path) -> None:
+    model = _AutocastProbe()
+    with pytest.raises(ValueError, match="autocast"):
+        _one_step(tmp_path, {"autocast": "fp16"}, model)
+    assert model.seen == []
