@@ -739,3 +739,33 @@ def test_predict_restores_labels_on_half_pixel_grid(tmp_path, monkeypatch):
     np.testing.assert_array_equal(result.get_fdata(), expected)
     assert result.get_data_dtype() == np.dtype(np.int16)
     assert set(np.unique(result.get_fdata())) == {0, 1, 2}
+
+
+def test_checkpoint_training_representation_mismatch_is_named(tmp_path):
+    from dense_unet_3d.cli import _load_model_from_checkpoint
+    from dense_unet_3d.training.experiment import experiment_metadata
+
+    dataset = {
+        "resize_dims": {"D": 4, "H": 8, "W": 8},
+        "clamp_hu": False,
+        "sampling": "native_slabs",
+        "resize_img": False,
+        "inplane_representation": "native_tiles_v1",
+        "random_hflip": False,
+        "scale_img": False,
+    }
+    crops = {
+        **dataset,
+        "training_representation": "foreground_crops_v1",
+        "passes_per_epoch": 2,
+        "tumor_centre_probability": 0.5,
+        "foreground_voxel_cache": 50,
+        "sampling_seed": 7,
+    }
+    path = tmp_path / "checkpoint.pt"
+    torch.save(
+        {**experiment_metadata({"dataset": crops}), "model_state_dict": _TinyModel().state_dict()},
+        path,
+    )
+    with pytest.raises(ValueError, match="preprocessing mismatch: training_representation"):
+        _load_model_from_checkpoint(str(path), torch.device("cpu"), {"dataset": dataset})

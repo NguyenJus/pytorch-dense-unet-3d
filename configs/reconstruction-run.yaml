@@ -1,0 +1,190 @@
+# Paper-faithful training run of 3D-DenseUNet-569 (Alalwan et al. 2021).
+# Spec: docs/specs/2026-10-21-paper-faithful-training-run-design.md (section 2 ledger).
+# The split dirs are symlink trees written by
+#   scripts/make_split_manifest.py --link-root data/splits/2026-10-21
+pathing:
+  run_name: paper-faithful-20261021
+  model_save_dir: ./models/
+  results_save_dir: ./results/
+  train_img_dirs:
+  - data/splits/2026-10-21/train
+  test_img_dirs:
+  - data/splits/2026-10-21/validation
+dataset:
+  batch_size: 2
+  resize_img: false
+  resize_dims:
+    D: 12
+    H: 224
+    W: 224
+  clamp_hu: true
+  clamp_hu_range:
+    min: -200
+    max: 250
+  random_hflip: true
+  random_hflip_probability: 0.5
+  scale_img: true
+  scale_img_range:
+    min: 0.8
+    max: 1.2
+  shuffle: true
+  sampling: native_slabs
+  inplane_representation: native_tiles_v1
+  training_representation: foreground_crops_v1
+  passes_per_epoch: 10
+  tumor_centre_probability: 0.5
+  foreground_voxel_cache: 20000
+  sampling_seed: 20261021
+  inference_batch: 8
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+training:
+  optimizer: SGD
+  learning_rate: 0.01
+  phase_a_epochs: 100
+  phase_a_steps_per_epoch: 10
+  phase_b_epochs: 100
+  phase_b_steps_per_epoch: 10
+  momentum: 0.5
+  use_scheduler: true
+  scheduler: StepLR
+  scheduler_step: 10
+  scheduler_gamma: 0.5
+  criterion: CrossEntropyLoss
+  class_weights:
+    background: 0.2
+    liver: 1.2
+    lesion: 2.2
+  phase_a_targets: three_class
+  loss_reduction: valid_voxel_mean
+  step_unit: training_pass
+  phase_transfer_policy: best_weights_fresh_optimizer
+  optimizer_semantics: pytorch_gradient_buffer
+  weight_decay: 0.0
+  dampening: 0.0
+  nesterov: false
+runtime:
+  wall_seconds: 86400
+  budget_seconds: 172800
+  validation_every: 10
+  recovery_every: 1
+  heartbeat_seconds: 10
+  max_retries: 0
+  final_eval_wall_seconds: 300
+  final_eval_max_batches: 100
+gpu:
+  use_gpu: true
+  gpu_name: cuda:0
+experiment:
+  kind: reconstruction
+  name: figure_skip_paper_faithful_training_run
+  mode: training
+  split_manifest: docs/research/2026-10-21-split-manifest.json
+  fidelity:
+    stem_pool_padding:
+      label: DEVIATION
+      evidence: "Fig. 1 stem Conv k7 s2 -> 96 and MaxPool k3 s2 print 112x112x6 and 56x56x3; literal pad=0 cannot produce the printed sizes, so SAME-upper padding is used."
+    transition_stride:
+      label: INFERRED
+      evidence: "Fig. 1 transition order Conv1 -> BN -> ReLU -> Conv1 stride 2 is LITERAL; the printed depth stays 3, so the stride is (1,2,2)."
+    decoder_interpolation:
+      label: INFERRED
+      evidence: "Fig. 1 and section 3 state bilinear x2 upsampling with Conv3D k3 widths 504/224/192/96/64 (LITERAL); trilinear is the 3-D reading of bilinear."
+    decoder_up1_self_concat:
+      label: LITERAL
+      evidence: "Fig. 1 at 300 dpi draws DB4 -> up1; figure_skip_reconstruction_v1 keeps the DB4 self-concat at up1 as drawn (64,591,723 params), flagged as a probable drawing artifact and not changed."
+    batch_norm_defaults:
+      label: INFERRED
+      evidence: "BN settings are not stated; TF/Keras framework (section 4.3) gives Keras-era defaults eps 1e-3, momentum 0.01."
+    initialization:
+      label: INFERRED
+      evidence: "Initialization and bias are not stated; Keras framework defaults: Glorot uniform, zero bias, all convolutions biased."
+    split:
+      label: INFERRED
+      evidence: "Paper trains on LiTS-2017's 131 labeled volumes with a hidden 70-case test set (section 4.1); no hidden test set is available, so 105 train / 26 validation, stratified by tumor voxel count (every 5th into validation), seed 20261021, recorded in docs/research/2026-10-21-split-manifest.json."
+    training_sample:
+      label: INFERRED
+      evidence: "Section 3 gives 224x224x12 but not its construction; foreground-centred random crop (tumor centre p=0.5 when present, else liver), native in-plane spacing, 12 contiguous native slices, from the H-DenseUNet lineage (same 0.8-1.2 scale, HU window, decoder widths; liver/tumor-centred crops 50/50)."
+    step_unit:
+      label: DEVIATION
+      evidence: "Section 3.2 'each epoch contains 10 steps (sub-epochs)' is read as one step = one pass over the training cases (one crop per case), not one minibatch: Table 2 reports per-epoch time over 5/10/15/20 cases and section 4.3's 42 h at ~0.1-0.2 s/sample implies 1e5-1e6 presentations, not 11,000."
+    mirror:
+      label: INFERRED
+      evidence: "Section 4.1 'random scaling and mirror' is LITERAL; axis and probability are not stated, so flip along tensor W with p=0.5."
+    scaling:
+      label: INFERRED
+      evidence: "Section 4.1 range 0.8-1.2 is LITERAL; mechanism inferred from H-DenseUNet: uniform in-plane factor applied as crop-size scaling before the resize to 224x224."
+    inference_tiling:
+      label: INFERRED
+      evidence: "Validation/inference input is not described; existing native_tiles_v1 deterministic grid (depth stride 12 + tail, in-plane 224 tiles), uniform probability averaging over overlap, whole-case argmax; verified zero lesion erasure."
+    batch_size:
+      label: INFERRED
+      evidence: "Batch size is not stated; microbatch 2."
+    optimizer_semantics:
+      label: INFERRED
+      evidence: "Section 4.3 momentum 0.5, initial LR 0.01, halved every 10 epochs is LITERAL; plain SGD (dampening 0, no Nesterov, no weight decay) with PyTorch gradient-buffer semantics and one StepLR step per epoch is inferred."
+    phase_transfer_reset:
+      label: INFERRED
+      evidence: "Section 3.2 'optimal weights obtained in the initial phase are used as a base' is LITERAL for the weights; a fresh optimizer and scheduler (LR back to 0.01) is inferred."
+    phase_b_epochs:
+      label: DEVIATION
+      evidence: "Section 3.2 states 1000 epochs x 10 steps; with halving every 10 epochs the literal 1000 epochs spend ~800 epochs below LR 1e-8, and Fig. 2 plots the 2nd training phase over 0-100 epochs, so Phase B runs 100 epochs."
+    best_selection:
+      label: INFERRED
+      evidence: "'Optimal weights' is undefined; best = mean of liver and tumor per-case Dice on the validation split (foreground_selection_score), evaluated every 10 epochs and at each phase-final epoch."
+    execution:
+      label: DEVIATION
+      evidence: "No paper claim (engineering): FP32 weights/activations with TF32 matmul/conv enabled, cuDNN benchmark on and deterministic off, bf16 autocast opt-in only; departs from the paper-era FP32 TF/Keras execution and is recorded as engineering, not fidelity."
+model:
+  name: figure_skip_reconstruction_v1
+  schema_version: 1
+  status: diagnostic_unresolved
+  input_shape:
+  - 1
+  - 12
+  - 224
+  - 224
+  block_counts:
+  - 4
+  - 12
+  - 24
+  - 36
+  bottlenecks:
+  - 128
+  - 128
+  - 128
+  - 32
+  growth: 32
+  compression: 0.5
+  stem: conv7_stride2_same_upper_bn_relu
+  pool: max3_stride2_same_upper
+  transition: conv1_bn_relu_conv1_stride122
+  dense_order: conv1_bn_relu_depthwise3_pointwise1_bn_relu
+  decoder: conv3_bn_relu
+  decoder_widths:
+  - 504
+  - 224
+  - 192
+  - 96
+  - 64
+  skips:
+  - dense_block4
+  - dense_block3
+  - dense_block2
+  - dense_block1
+  - stem
+  resize: both_trilinear_align_corners_false
+  batch_norm:
+    eps: 0.001
+    momentum: 0.01
+    running_variance: unbiased
+  initialization: glorot_uniform_keras_depthwise_fans_bias_zero
+  bias: all_convolutions
+  classifier: conv1_3_logits
+execution:
+  precision: fp32
+  tf32: true
+  cudnn_benchmark: true
+  deterministic: false
+  autocast: none
