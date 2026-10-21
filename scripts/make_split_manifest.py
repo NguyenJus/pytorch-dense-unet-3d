@@ -4,7 +4,9 @@
 Cases are sorted by tumor voxel count and every ``round(1/fraction)``-th case,
 from a seed-derived offset, goes to validation.  ``--link-root`` additionally
 writes symlink trees ``<root>/train`` and ``<root>/validation`` so the existing
-dataset discovery and split-manifest validation work unchanged.
+dataset discovery and split-manifest validation work unchanged.  Pairs that fail
+the loader's image/mask shape or affine check are excluded before stratification
+and recorded under ``excluded`` with the reason.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from typing import Any
 import nibabel as nib
 import numpy as np
 
-from dense_unet_3d.dataset.LITSDataset import _case_id, discover_pairs
+from dense_unet_3d.dataset.LITSDataset import _case_id, _validate_spatial_pair, discover_pairs
 
 
 def _sha256(path: str) -> str:
@@ -54,8 +56,22 @@ def build_manifest(
     if not 0.0 < validation_fraction < 1.0:
         raise ValueError("validation_fraction must be in (0, 1)")
     rows: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
     for volume, segmentation in pairs:
-        labels = np.asanyarray(nib.load(segmentation).dataobj)  # type: ignore[attr-defined]
+        volume_img, segmentation_img = nib.load(volume), nib.load(segmentation)
+        try:
+            _validate_spatial_pair(volume_img, segmentation_img, volume)  # type: ignore[arg-type]
+        except ValueError as error:
+            excluded.append(
+                {
+                    "id": _case_id(volume, "volume"),
+                    "reason": str(error),
+                    "volume_sha256": _sha256(volume),
+                    "segmentation_sha256": _sha256(segmentation),
+                }
+            )
+            continue
+        labels = np.asanyarray(segmentation_img.dataobj)  # type: ignore[attr-defined]
         tumor = int((labels == 2).sum())
         rows.append(
             {
@@ -104,6 +120,7 @@ def build_manifest(
             }
             for row in per_case
         ],
+        "excluded": sorted(excluded, key=lambda row: str(row["id"])),
         "seed": seed,
         "stratification": f"tumor_voxel_count_every_{stride}th",
         "validation_fraction": validation_fraction,
@@ -122,9 +139,11 @@ def link_split(
     for split in ("train", "validation"):
         (root / split).mkdir(parents=True, exist_ok=True)
     for volume, segmentation in pairs:
-        split = split_of[_case_id(volume, "volume")]
+        case_split = split_of.get(_case_id(volume, "volume"))
+        if case_split is None:  # excluded from the manifest
+            continue
         for source in (volume, segmentation):
-            os.symlink(os.path.abspath(source), root / split / os.path.basename(source))
+            os.symlink(os.path.abspath(source), root / case_split / os.path.basename(source))
 
 
 def main() -> None:

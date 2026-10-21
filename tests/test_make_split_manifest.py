@@ -164,3 +164,23 @@ def test_cli_rejects_non_empty_link_root_before_hashing(tree, tmp_path, monkeypa
     monkeypatch.setattr(sys, "argv", argv)
     with pytest.raises(ValueError, match="not empty"):
         msm.main()
+
+
+def test_affine_mismatch_excluded_and_not_linked(tree, tmp_path):
+    seg_path = os.path.join(tree[1], "segmentation-3.nii")
+    labels = np.asanyarray(nib.load(seg_path).dataobj)
+    nib.save(nib.Nifti1Image(labels, np.diag([2.0, 1.0, 1.0, 1.0])), seg_path)
+    manifest = _build(tree)
+    assert [row["id"] for row in manifest["excluded"]] == ["-3"]
+    assert "affine mismatch" in manifest["excluded"][0]["reason"]
+    assert manifest["excluded"][0]["segmentation_sha256"] == _sha(seg_path)
+    assert "-3" not in {row["id"] for row in manifest["per_case"]}
+    assert sum(manifest["counts"].values()) == 9
+    root = tmp_path / "links"
+    msm.link_split(manifest, discover_pairs(tree), root)
+    linked = [
+        os.path.basename(volume)
+        for split in ("train", "validation")
+        for volume, _ in discover_pairs([str(root / split)])
+    ]
+    assert "volume-3.nii" not in linked and len(linked) == 9
