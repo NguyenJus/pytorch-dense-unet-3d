@@ -129,7 +129,10 @@ def _dataset_identity(dataset: Any, file_cache: dict[str, Any] | None = None) ->
     from dense_unet_3d.dataset.LITSDataset import LITSDataset
     from dense_unet_3d.dataset.slabs import NativeSlabDataset
 
-    if type(dataset) in (NativeSlabDataset, ForegroundCropDataset):
+    if type(dataset) is ForegroundCropDataset:
+        # The dataset already hashed these files at construction; hash each file once.
+        return {"manifest": dataset.manifest(), "files": dataset.source_identity}
+    if type(dataset) is NativeSlabDataset:
         return {
             "manifest": dataset.manifest(),
             "files": [
@@ -426,6 +429,20 @@ def _validate_checkpoint(
                     raise ValueError(f"Incompatible checkpoint metadata: {key}")
 
 
+def _resolve_training_pass_counts(
+    schedule: dict[str, Any], phase: str, batches: int, config: dict[str, Any]
+) -> None:
+    """Recompute every count derived from steps_per_epoch for a loader of ``batches``."""
+    phase_schedule = schedule["phases"][phase]
+    phase_schedule["steps_per_epoch"] = batches
+    phase_schedule["updates"] = phase_schedule["epochs"] * batches
+    schedule["total_updates"] = sum(p["updates"] for p in schedule["phases"].values())
+    if "learning_rate" in phase_schedule:
+        plateau = config["training"]["scheduler_step"] * batches
+        phase_schedule["learning_rate"]["updates_between_decays"] = plateau
+        phase_schedule["updates_per_lr_plateau"] = plateau
+
+
 def run_recoverable(
     config: dict[str, Any],
     model: Any,
@@ -455,9 +472,7 @@ def run_recoverable(
         if schedule["phases"][phase].get("step_unit") == "training_pass":
             # One epoch is one loader pass; the dataset already holds every pass.
             # Resolved before checkpoint validation so global_step uses this count.
-            phase_schedule = schedule["phases"][phase]
-            phase_schedule["steps_per_epoch"] = len(loader)
-            phase_schedule["updates"] = phase_schedule["epochs"] * len(loader)
+            _resolve_training_pass_counts(schedule, phase, len(loader), config)
         batch_size = loader.batch_size
         if batch_size is None:
             raise ValueError("Training requires explicit microbatch size")

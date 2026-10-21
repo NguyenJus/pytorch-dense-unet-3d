@@ -167,6 +167,22 @@ def test_training_pass_requires_steps_equal_passes(tmp_path):
         describe_schedule(_training_pass_config(tmp_path, steps=2))
 
 
+@pytest.mark.parametrize(
+    "section,key",
+    [
+        ("experiment", "split_manifest"),
+        ("experiment", "fidelity"),
+        ("dataset", "passes_per_epoch"),
+        ("dataset", "batch_size"),
+    ],
+)
+def test_training_pass_missing_config_key_names_it(tmp_path, section, key):
+    cfg = _training_pass_config(tmp_path)
+    del cfg[section][key]
+    with pytest.raises(ValueError, match=f"{section}.{key}"):
+        describe_schedule(cfg)
+
+
 def test_minibatch_update_schedule_has_no_training_pass_fields(tmp_path):
     plan = describe_schedule(config(tmp_path))
     assert "fidelity" not in plan

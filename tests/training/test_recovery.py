@@ -646,3 +646,37 @@ def test_crop_dataset_identity(tmp_path):
     assert [[f["path"] for f in pair] for pair in identity["files"]] == [
         [str(Path(name).resolve()) for name in pair] for pair in loader.dataset.cases
     ]
+
+
+def test_crop_dataset_identity_reuses_dataset_hashes(tmp_path, monkeypatch):
+    import hashlib
+
+    loader = worker_loader("crop", tmp_path)
+    expected = {
+        "manifest": loader.dataset.manifest(),
+        "files": [
+            [recovery._source_file_identity(name, {}) for name in pair]
+            for pair in loader.dataset.cases
+        ],
+    }
+    calls = []
+    real = hashlib.sha256
+    monkeypatch.setattr(recovery.hashlib, "sha256", lambda *a: calls.append(1) or real(*a))
+    identity = recovery._dataset_identity(loader.dataset)
+    assert calls == []
+    assert json.dumps(identity, sort_keys=True) == json.dumps(expected, sort_keys=True)
+
+
+def test_training_pass_counts_follow_loader_length(tmp_path):
+    cfg = config(tmp_path)
+    cfg["training"].update(step_unit="training_pass")
+    schedule = runtime.describe_schedule(config(tmp_path))
+    for phase in ("phase_a", "phase_b"):
+        schedule["phases"][phase]["updates_per_lr_plateau"] = -1
+        recovery._resolve_training_pass_counts(schedule, phase, 7, cfg)
+        phase_schedule = schedule["phases"][phase]
+        assert phase_schedule["steps_per_epoch"] == 7
+        assert phase_schedule["updates"] == 21
+        assert phase_schedule["updates_per_lr_plateau"] == 7
+        assert phase_schedule["learning_rate"]["updates_between_decays"] == 7
+    assert schedule["total_updates"] == 42

@@ -383,6 +383,14 @@ def describe_schedule(config: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("learning_rate must be finite and nonnegative")
     training_pass = training.get("step_unit") == "training_pass"
     if training_pass:
+        for section, key in (
+            ("experiment", "split_manifest"),
+            ("experiment", "fidelity"),
+            ("dataset", "passes_per_epoch"),
+            ("dataset", "batch_size"),
+        ):
+            if key not in (config.get(section) or {}):
+                raise ValueError(f"training_pass requires {section}.{key}")
         with open(config["experiment"]["split_manifest"]) as stream:
             n_train = len(json.load(stream)["case_ids"]["train"])
         passes = config["dataset"]["passes_per_epoch"]
