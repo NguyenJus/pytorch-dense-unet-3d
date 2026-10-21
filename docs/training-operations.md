@@ -352,7 +352,7 @@ for required isolation before another learning-readiness claim.
 `configs/reconstruction-run.yaml` is the launchable `mode: training` protocol;
 its fidelity labels are in the
 [run ledger](research/2026-10-21-paper-faithful-run.md). One step is one pass
-over the training cases, so an epoch is 10 passes (525 updates at 105 cases,
+over the training cases, so an epoch is 10 passes (505 updates at 101 cases,
 batch 2). `configs/reconstruction-smoke.yaml` differs only in run name,
 epochs (2 + 1), validation cadence and budget. Unlike the execution reference
 above, `mode: training` runs with TF32 and cuDNN benchmark enabled and
@@ -360,7 +360,8 @@ deterministic algorithms off; diagnostic and reference modes keep the strict
 FP32 reference. GPU runs need separate owner authorization.
 
 ```bash
-# 1. Split (CPU): 105 train / 26 validation, plus symlink trees for the config.
+# 1. Split (CPU): 101 train / 25 validation (cases 48-52 excluded for their
+#    identity-affine segmentation headers), plus symlink trees for the config.
 python scripts/make_split_manifest.py --seed 20261021 --validation-fraction 0.2 \
   --output docs/research/2026-10-21-split-manifest.json \
   --link-root data/splits/2026-10-21 <LiTS batch dirs...>

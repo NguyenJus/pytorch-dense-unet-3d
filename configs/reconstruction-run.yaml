@@ -102,7 +102,7 @@ experiment:
       evidence: "Initialization and bias are not stated; Keras framework defaults: Glorot uniform, zero bias, all convolutions biased."
     split:
       label: INFERRED
-      evidence: "Paper trains on LiTS-2017's 131 labeled volumes with a hidden 70-case test set (section 4.1); no hidden test set is available, so 105 train / 26 validation, stratified by tumor voxel count (every 5th into validation), seed 20261021, recorded in docs/research/2026-10-21-split-manifest.json."
+      evidence: "Paper trains on LiTS-2017's 131 labeled volumes with a hidden 70-case test set (section 4.1); no hidden test set is available and cases 48-52 are excluded (their segmentations carry an identity affine that fails the image/mask grid check), so 101 train / 25 validation of the 126 valid cases, stratified by tumor voxel count (every 5th into validation), seed 20261021, recorded in docs/research/2026-10-21-split-manifest.json."
     training_sample:
       label: INFERRED
       evidence: "Section 3 gives 224x224x12 but not its construction; foreground-centred random crop (tumor centre p=0.5 when present, else liver), native in-plane spacing, 12 contiguous native slices, from the H-DenseUNet lineage (same 0.8-1.2 scale, HU window, decoder widths; liver/tumor-centred crops 50/50)."

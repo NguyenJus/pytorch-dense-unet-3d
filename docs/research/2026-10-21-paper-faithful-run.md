@@ -84,6 +84,8 @@ No model code changes are required. `model/config.py` identity `figure_skip_reco
 
 Expected update counts (N_train = 105, batch 2): 525 updates/epoch, 52,500 per phase, 105,000 total; 210,000 sample presentations.
 
+**As-run amendment (2026-10-21, owner decision).** The tables above are the design as specified. Preflight rejected LiTS cases 48-52: their segmentations carry an identity affine while the volumes carry the scanner geometry, so the image/mask grid check fails. The 2026-09-30 split had already held only the other 126 cases. The owner chose to exclude the five rather than repair their headers; `make_split_manifest.py` records them under `excluded` with the reason and hashes. The as-run split is **101 train / 25 validation**, and the counts become 505 updates/epoch, 50,500 per phase, 101,000 total; 202,000 sample presentations.
+
 ## 3. Plan-level decisions
 
 These resolve places where the design was silent or self-inconsistent; the owner's delegate accepted them on 2026-10-21.
@@ -133,7 +135,7 @@ The `experiment.fidelity` block of `configs/reconstruction-run.yaml` (and the sm
 | `decoder_up1_self_concat` | LITERAL | Fig. 1 at 300 dpi draws DB4 -> up1; figure_skip_reconstruction_v1 keeps the DB4 self-concat at up1 as drawn (64,591,723 params), flagged as a probable drawing artifact and not changed. |
 | `batch_norm_defaults` | INFERRED | BN settings are not stated; TF/Keras framework (section 4.3) gives Keras-era defaults eps 1e-3, momentum 0.01. |
 | `initialization` | INFERRED | Initialization and bias are not stated; Keras framework defaults: Glorot uniform, zero bias, all convolutions biased. |
-| `split` | INFERRED | Paper trains on LiTS-2017's 131 labeled volumes with a hidden 70-case test set (section 4.1); no hidden test set is available, so 105 train / 26 validation, stratified by tumor voxel count (every 5th into validation), seed 20261021, recorded in docs/research/2026-10-21-split-manifest.json. |
+| `split` | INFERRED | Paper trains on LiTS-2017's 131 labeled volumes with a hidden 70-case test set (section 4.1); no hidden test set is available and cases 48-52 are excluded (their segmentations carry an identity affine that fails the image/mask grid check), so 101 train / 25 validation of the 126 valid cases, stratified by tumor voxel count (every 5th into validation), seed 20261021, recorded in docs/research/2026-10-21-split-manifest.json. |
 | `training_sample` | INFERRED | Section 3 gives 224x224x12 but not its construction; foreground-centred random crop (tumor centre p=0.5 when present, else liver), native in-plane spacing, 12 contiguous native slices, from the H-DenseUNet lineage (same 0.8-1.2 scale, HU window, decoder widths; liver/tumor-centred crops 50/50). |
 | `step_unit` | DEVIATION | Section 3.2 'each epoch contains 10 steps (sub-epochs)' is read as one step = one pass over the training cases (one crop per case), not one minibatch: Table 2 reports per-epoch time over 5/10/15/20 cases and section 4.3's 42 h at ~0.1-0.2 s/sample implies 1e5-1e6 presentations, not 11,000. |
 | `mirror` | INFERRED | Section 4.1 'random scaling and mirror' is LITERAL; axis and probability are not stated, so flip along tensor W with p=0.5. |
@@ -153,5 +155,5 @@ Filled after the run. Nothing below is a measurement yet.
 - Split manifest (`docs/research/2026-10-21-split-manifest.json`): TBD
 - Bounded smoke (`configs/reconstruction-smoke.yaml`): measured s/sample and projected full-run time: TBD
 - Full run: validation curve (liver and tumor Dice per case, every 10 epochs), best epoch and score: TBD
-- Tumor Dice nonzero on the 26-case holdout: TBD
+- Tumor Dice nonzero on the 25-case holdout: TBD
 - Local holdout numbers are not comparable to the paper's hidden 70-volume test set.

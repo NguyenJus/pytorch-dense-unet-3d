@@ -169,7 +169,8 @@ protocol. Historical examples below retain their original contract.
 The paper-faithful run is launchable: `configs/reconstruction-run.yaml` (full
 run) and `configs/reconstruction-smoke.yaml` (bounded smoke) train with
 foreground-centred crops, one step = one pass over the training cases, and a
-105/26 split built by `scripts/make_split_manifest.py`. Every design decision
+101/25 split built by `scripts/make_split_manifest.py` (cases 48-52 excluded for
+broken segmentation headers). Every design decision
 carries a LITERAL / INFERRED / DEVIATION label in the
 [paper-faithful run ledger](docs/research/2026-10-21-paper-faithful-run.md),
 which also holds the expected update counts and, after the run, its results.
