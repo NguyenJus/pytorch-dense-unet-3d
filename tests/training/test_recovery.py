@@ -605,7 +605,12 @@ def test_workers_accepted_for_index_carried_randomness(tmp_path, kind):
         "prefetch_factor": 2,
     }
     default = recovery._loader_identity(worker_loader(kind, tmp_path))
-    assert "workers" not in default
+    assert default["workers"] == {
+        "num_workers": 0,
+        "pin_memory": False,
+        "persistent_workers": False,
+        "prefetch_factor": None,
+    }
     assert default["dataset"] == identity["dataset"]
 
 
@@ -626,7 +631,7 @@ def test_workers_refused_for_lits_and_worker_init_fn(tmp_path):
         )
 
 
-def test_default_loader_identity_unchanged():
+def test_default_loader_identity_records_workers():
     _, loader = setup()
     identity = recovery._loader_identity(loader)
     assert set(identity) == {
@@ -636,7 +641,9 @@ def test_default_loader_identity_unchanged():
         "sampler",
         "replacement",
         "num_samples",
+        "workers",
     }
+    assert identity["workers"]["num_workers"] == 0
 
 
 def test_crop_dataset_identity(tmp_path):

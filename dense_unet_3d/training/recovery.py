@@ -219,18 +219,15 @@ def _loader_identity(loader: DataLoader | None, file_cache: dict[str, Any] | Non
 
     if loader.collate_fn is not default_collate:
         raise ValueError("Exact resume requires default_collate")
-    identity = {
+    return {
         "dataset": _dataset_identity(loader.dataset, file_cache),
         "batch_size": loader.batch_size,
         "drop_last": loader.drop_last,
         "sampler": type(loader.sampler).__name__,
         "replacement": getattr(loader.sampler, "replacement", None),
         "num_samples": getattr(loader.sampler, "num_samples", None),
+        "workers": workers,
     }
-    if workers != default_workers:
-        # Recorded only when set, so single-process identities stay byte-identical.
-        identity["workers"] = workers
-    return identity
 
 
 def _generator_topology(loaders: list[DataLoader | None]) -> list[list[int | str | None]]:
