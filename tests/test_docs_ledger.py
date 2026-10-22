@@ -89,3 +89,17 @@ def test_ledger_defines_labels_as_the_design_does() -> None:
     assert "| **INFERRED** | The paper omits it; one choice is made" in ledger
     assert "| **DEVIATION** | The paper states it but the literal reading cannot work;" in ledger
     assert "an **unlabelled** deviation is." in ledger
+
+
+def test_ledger_records_owner_decision_against_compatibility_forms() -> None:
+    from dense_unet_3d.training.experiment import EXECUTION_KEYS
+
+    ledger = " ".join(_text(LEDGER).split())
+    start = ledger.index("**D6 ")
+    d6 = ledger[start : ledger.index("- **D7 ", start)]
+    assert "stays valid" not in d6
+    assert all(f"`{key}`" in d6 for key in EXECUTION_KEYS), d6
+    assert "owner decision 1" in d6
+    notes = _section(_text(LEDGER), "### As-built notes")
+    assert "only when non-default" not in notes
+    assert "always records the `workers` mapping" in notes

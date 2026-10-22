@@ -355,9 +355,11 @@ its fidelity labels are in the
 over the training cases, so an epoch is 10 passes (505 updates at 101 cases,
 batch 2). `configs/reconstruction-smoke.yaml` differs only in run name,
 epochs (2 + 1), validation cadence and budget. Unlike the execution reference
-above, `mode: training` runs with TF32 and cuDNN benchmark enabled and
-deterministic algorithms off; diagnostic and reference modes keep the strict
-FP32 reference. GPU runs need separate owner authorization.
+above, `mode: training` runs with TF32 enabled and deterministic algorithms
+off; cuDNN benchmark stays off because its algorithm search exhausts the 16 GiB
+card and spills into shared memory, and validation forwards 4 tiles per batch
+(`dataset.inference_batch: 4`, the fastest batch that stays on the card).
+Diagnostic and reference modes keep the strict FP32 reference. GPU runs need separate owner authorization.
 
 ```bash
 # 1. Split (CPU): 101 train / 25 validation (cases 48-52 excluded for their

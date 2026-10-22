@@ -86,7 +86,7 @@ Expected update counts (N_train = 105, batch 2): 525 updates/epoch, 52,500 per p
 
 **As-run amendment (2026-10-21, owner decision).** The tables above are the design as specified. Preflight rejected LiTS cases 48-52: their segmentations carry an identity affine while the volumes carry the scanner geometry, so the image/mask grid check fails. The 2026-09-30 split had already held only the other 126 cases. The owner chose to exclude the five rather than repair their headers; `make_split_manifest.py` records them under `excluded` with the reason and hashes. The as-run split is **101 train / 25 validation**, and the counts become 505 updates/epoch, 50,500 per phase, 101,000 total; 202,000 sample presentations.
 
-**As-run amendment (2026-10-21, smoke): inference batch 2, not 8.** The first GPU smoke failed in its first validation with `CUDA error: unknown error`, and the WSL driver logged `dxgkio_make_resident: Ioctl failed: -12` (out of memory). Measured on the RTX 5070 Ti (16 GiB), eval/no-grad, 12×224×224 tiles, TF32 on: without cuDNN benchmark the peak is 1.76 / 3.27 / 6.30 / 12.35 GiB at batch 1 / 2 / 4 / 8, about 1.5 GiB per tile. With benchmark the warm forward costs 0.035 s/tile at batch 2, 0.033 at batch 4 and 0.040 at batch 8. Batch 8 cannot fit next to the training state, so `dataset.inference_batch` is 2 in both configs (spec §5 OOM fallback). This is engineering, not fidelity; predictions are array-equal across batch sizes on CPU.
+**As-run amendment (2026-10-21, owner decision): cuDNN benchmark off, inference batch 4.** The owner's rule is "whichever fits on gpu, alone, without any other leakage". The first GPU smoke failed in its first validation with `CUDA error: unknown error`, and the WSL driver logged `dxgkio_make_resident: Ioctl failed: -12` (out of memory). Measured on the RTX 5070 Ti (16 GiB), eval/no-grad, 12×224×224 tiles, TF32 on: without cuDNN benchmark the isolated forward peak is 1.76 / 3.27 / 6.30 / 12.35 GiB at batch 1 / 2 / 4 / 8, about 1.5 GiB per tile. With benchmark the warm forward costs 0.035 s/tile at batch 2, 0.033 at batch 4 and 0.040 at batch 8. Batch 8 cannot fit next to the training state, so the smoke ran with benchmark on and `dataset.inference_batch` 2 (spec §5 OOM fallback). A follow-up measurement on the same card (Windows holds ~1.3-1.6 GiB; training batch 2; deepest validation case 512×512×987) found that benchmark on leaks: its algorithm search makes training alone reserve 13.67 GiB, and device free memory reaches 0.00 GiB at every inference batch, spilling into WSL shared memory. With benchmark off, training costs 0.126 s/sample at a 7.38 GiB peak reserved, and the deepest case evaluates in 44.8 / 37.5 / 34.7 / 166.9 s at inference batch 1 / 2 / 4 / 6, peak reserved 7.38 / 7.38 / 10.83 / 16.00 GiB, minimum device free 7.22 / 7.22 / 3.77 / 0.00 GiB. Batch 6 spills. Both configs therefore set `execution.cudnn_benchmark: false` and `dataset.inference_batch: 4`, the fastest leak-free choice with 3.77 GiB headroom; the predictor default is 4 as well. This overrides the cuDNN row and the batch-8 validation note in §2.4. It is engineering, not fidelity; predictions are array-equal across batch sizes on CPU.
 
 ## 3. Plan-level decisions
 
@@ -97,14 +97,14 @@ These resolve places where the design was silent or self-inconsistent; the owner
 - **D3 Crop randomness transport.** A `CropSampler` in the main process yields `(index, item_seed)` tuples from a `torch.Generator`; `__getitem__` derives centre, scale and flip only from `item_seed`. The generator is captured by the recovery RNG machinery, so a restored boundary replays crop parameters exactly for any worker count. New key: `dataset.sampling_seed`.
 - **D4 `training_pass` arithmetic.** `updates_per_epoch = ceil(passes_per_epoch * N_train / batch_size)` = 525 updates/epoch at 105 cases, batch 2 (equals `len(loader)`); 105,000 total over both phases. Each `training.phase_{a,b}_steps_per_epoch` must equal `dataset.passes_per_epoch`.
 - **D5 One training loader for both phases.** Both phases are three_class, so Phase B reuses the Phase A train loader object: one generator stream (Phase B does not replay Phase A's crops) and one foreground index.
-- **D6 Execution keys.** The 3-key block `{precision, tf32, deterministic}` stays valid (defaults `cudnn_benchmark: false`, `autocast: none`). `mode: diagnostic` keeps the strict FP32 reference. `mode: training` requires all five keys explicitly and allows `tf32: true`, `cudnn_benchmark: true`, `autocast: none|bf16`.
+- **D6 Execution keys.** A present execution block always needs exactly the five keys `precision`, `tf32`, `deterministic`, `cudnn_benchmark`, `autocast`; nothing is defaulted. The plan's 3-key `{precision, tf32, deterministic}` form was removed by owner decision 1 (2026-10-21, no backward compatibility), so a 3-key block is now rejected. `mode: diagnostic` keeps the strict FP32 reference (`tf32: false`, `cudnn_benchmark: false`, `autocast: none`). `mode: training` requires all five keys explicitly and allows `tf32: true`, `cudnn_benchmark: true`, `autocast: none|bf16`.
 - **D7 Loader workers** apply only to the training loader. Validation never iterates its loader (`evaluate` reads `dataset.cases`).
 
 ### As-built notes
 
 - Foreground sampling uses liver = labels >= 1 (whole liver including tumor, the evaluation convention) and tumor = label 2, so a liver-centred draw can land on a tumor voxel.
 - `fidelity` has 18 entries: the 17 required keys plus `decoder_up1_self_concat` (LITERAL as drawn, flagged as a probable drawing artifact).
-- Worker settings enter the recovery loader identity only when non-default, keeping single-process run identities unchanged.
+- The recovery loader identity always records the `workers` mapping (`num_workers`, `pin_memory`, `persistent_workers`, `prefetch_factor`), single-process loaders included. Per owner decision 1, identities recorded before this change no longer match, so older run directories cannot be resumed.
 
 ## 4. Alternatives considered
 
@@ -148,21 +148,21 @@ The `experiment.fidelity` block of `configs/reconstruction-run.yaml` (and the sm
 | `phase_transfer_reset` | INFERRED | Section 3.2 'optimal weights obtained in the initial phase are used as a base' is LITERAL for the weights; a fresh optimizer and scheduler (LR back to 0.01) is inferred. |
 | `phase_b_epochs` | DEVIATION | Section 3.2 states 1000 epochs x 10 steps; with halving every 10 epochs the literal 1000 epochs spend ~800 epochs below LR 1e-8, and Fig. 2 plots the 2nd training phase over 0-100 epochs, so Phase B runs 100 epochs. |
 | `best_selection` | INFERRED | 'Optimal weights' is undefined; best = mean of liver and tumor per-case Dice on the validation split (foreground_selection_score), evaluated every 10 epochs and at each phase-final epoch. |
-| `execution` | DEVIATION | No paper claim (engineering): FP32 weights/activations with TF32 matmul/conv enabled, cuDNN benchmark on and deterministic off, bf16 autocast opt-in only; departs from the paper-era FP32 TF/Keras execution and is recorded as engineering, not fidelity. |
+| `execution` | DEVIATION | No paper claim (engineering): FP32 weights/activations with TF32 matmul/conv enabled, cuDNN benchmark off (its algorithm search exhausts the 16 GiB card and spills into shared memory) and deterministic off, bf16 autocast opt-in only; departs from the paper-era FP32 TF/Keras execution and is recorded as engineering, not fidelity. |
 
 ## Results
 
 The full-run lines are filled after the run.
 
 - Split manifest (`docs/research/2026-10-21-split-manifest.json`): 101 train / 25 validation of 126 valid cases (48-52 excluded); 90 and 23 cases with tumor. `preflight --full-decode` passes.
-- Bounded smoke (`configs/reconstruction-smoke.yaml`, RTX 5070 Ti, FP32 + TF32, cuDNN benchmark, batch 2, 4 workers, no other GPU job), 2026-10-21:
+- Bounded smoke (`configs/reconstruction-smoke.yaml`, RTX 5070 Ti, FP32 + TF32, cuDNN benchmark, batch 2, 4 workers, no other GPU job), 2026-10-21. Measured history: this smoke ran with cuDNN benchmark on and inference batch 2, before the configs moved to benchmark off and inference batch 4 (see the §2.4 amendment).
   - Startup (preflight full decode + foreground index build): ~740 s per invocation.
   - Training: 318 / 307 / 301 s per 1,010-sample epoch = **0.30-0.32 s/sample**, below the 0.5 s/sample bf16 threshold, so autocast stays off.
   - Validation (25 cases, inference batch 2): 478 / 439 / 431 s.
   - Loss 0.207 → 0.177 (Phase A epochs 1-2) → 0.169 (Phase B epoch 1); per-case Dice liver 0.24 → 0.37 → 0.43, tumor 0.014 → 0.030 → 0.036; 16.6 M class-2 voxels predicted in Phase A epoch 1. All losses finite.
   - Stop/resume: stopped at the epoch-0 boundary, then again during Phase A epoch 2 validation. The interrupted validation published nothing and epoch 2 replayed from the epoch-1 boundary. Resumed to completion; 4,266 s cumulative of the 5,400 s budget.
   - GPU batch 1 vs batch 2 labels on validation case 3 (512×512×534): 4,685 of 139,984,896 voxels differ (0.0033 %, limit 0.01 %).
-  - Projected full run: 200 × ~305 s training + 20 validations × ~440 s + startup ≈ 19.6 h, inside the 48 h budget and likely inside one 24 h invocation.
+  - Projected full run: 200 × ~305 s training + 20 validations × ~440 s + startup ≈ 19.6 h, inside the 48 h budget and likely inside one 24 h invocation. These smoke timings ran with cuDNN benchmark on and inference batch 2. Training is input-bound: the smoke ran 0.30-0.32 s/sample, while the model step alone takes 0.121 s/sample with benchmark on and 0.126 with it off. Validation of the deepest case takes 34.7 s at batch 4 with benchmark off and 37.2 s at batch 2 with benchmark on. The projection should therefore hold for the as-run settings; the first epochs of the full run will confirm it.
 - Full run: validation curve (liver and tumor Dice per case, every 10 epochs), best epoch and score: TBD
 - Tumor Dice nonzero on the 25-case holdout: TBD
 - Local holdout numbers are not comparable to the paper's hidden 70-volume test set.

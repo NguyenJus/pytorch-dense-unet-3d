@@ -35,7 +35,7 @@ dataset:
   tumor_centre_probability: 0.5
   foreground_voxel_cache: 20000
   sampling_seed: 20261021
-  inference_batch: 2
+  inference_batch: 4
   num_workers: 4
   pin_memory: true
   persistent_workers: true
@@ -135,7 +135,7 @@ experiment:
       evidence: "'Optimal weights' is undefined; best = mean of liver and tumor per-case Dice on the validation split (foreground_selection_score), evaluated every 10 epochs and at each phase-final epoch."
     execution:
       label: DEVIATION
-      evidence: "No paper claim (engineering): FP32 weights/activations with TF32 matmul/conv enabled, cuDNN benchmark on and deterministic off, bf16 autocast opt-in only; departs from the paper-era FP32 TF/Keras execution and is recorded as engineering, not fidelity."
+      evidence: "No paper claim (engineering): FP32 weights/activations with TF32 matmul/conv enabled, cuDNN benchmark off (its algorithm search exhausts the 16 GiB card and spills into shared memory) and deterministic off, bf16 autocast opt-in only; departs from the paper-era FP32 TF/Keras execution and is recorded as engineering, not fidelity."
 model:
   name: figure_skip_reconstruction_v1
   schema_version: 1
@@ -185,6 +185,6 @@ model:
 execution:
   precision: fp32
   tf32: true
-  cudnn_benchmark: true
+  cudnn_benchmark: false
   deterministic: false
   autocast: none

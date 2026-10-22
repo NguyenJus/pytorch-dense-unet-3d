@@ -195,7 +195,7 @@ def test_foreground_crops_rejections(update, message):
 
 def test_inference_batch_attribute_validated_and_not_in_manifest(tmp_path):
     write_case(tmp_path, "0", np.zeros((5, 7, 12)))
-    assert NativeSlabDataset([str(tmp_path)], config()).inference_batch == 8
+    assert NativeSlabDataset([str(tmp_path)], config()).inference_batch == 4
     ds = NativeSlabDataset([str(tmp_path)], {**config(), "inference_batch": 3})
     assert ds.inference_batch == 3
     assert "inference_batch" not in json.dumps(ds.manifest()["geometry"])
@@ -239,7 +239,7 @@ def test_native_tile_audit_physical_units(unit, scale, disposition):
 def test_inference_batch_helper_default_and_validation():
     from dense_unet_3d.dataset.slabs import inference_batch
 
-    assert inference_batch({}) == 8
+    assert inference_batch({}) == 4
     assert inference_batch({"inference_batch": 3}) == 3
     for bad in (0, -1, True, 2.0):
         with pytest.raises(ValueError, match="inference_batch must be a positive integer"):

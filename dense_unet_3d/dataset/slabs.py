@@ -130,7 +130,7 @@ def image_slab(image: SpatialImage, start: int, geometry: dict) -> tuple[torch.T
 
 def inference_batch(config: dict) -> int:
     """Validated forward-pass batch size; execution-only, never part of the geometry."""
-    value = config.get("inference_batch", 8)
+    value = config.get("inference_batch", 4)
     if type(value) is not int or value < 1:
         raise ValueError("inference_batch must be a positive integer")
     return value
