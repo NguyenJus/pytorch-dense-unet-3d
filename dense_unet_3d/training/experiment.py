@@ -94,6 +94,9 @@ def validate_experiment(config: dict[str, Any]) -> None:
     # All launch paths share these two canonical data representations. Validate
     # before preflight so a misspelled mode cannot trigger an expensive scan.
     preprocessing_identity(config)
+    # Checked before the early returns so a bad block fails before the expensive preflight.
+    if config.get("execution") is not None:
+        _execution_settings(config["execution"])
     experiment = config.get("experiment")
     if experiment is None:
         return

@@ -303,6 +303,16 @@ def test_reference_still_refuses_and_diagnostic_stays_strict():
             validate_experiment(loose)
 
 
+def test_validate_experiment_rejects_three_key_execution_without_reconstruction():
+    three_key = {"precision": "fp32", "tf32": False, "deterministic": False}
+    for experiment in (None, {"kind": "historical_reference"}):
+        config = {"execution": three_key}
+        if experiment is not None:
+            config["experiment"] = experiment
+        with pytest.raises(ValueError, match="requires exactly"):
+            validate_experiment(config)
+
+
 def test_execution_block_requires_exactly_the_five_keys():
     three_key = {"precision": "fp32", "tf32": False, "deterministic": False}
     with pytest.raises(ValueError, match="requires exactly precision, tf32, deterministic"):
