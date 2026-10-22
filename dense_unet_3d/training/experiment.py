@@ -178,8 +178,6 @@ def _validate_training_run(config: dict[str, Any], execution: Any) -> None:
     ):
         if dataset.get(key) != value:
             raise ValueError(f"Training mode requires explicit dataset.{key}={value}")
-    if not isinstance(execution, dict) or set(execution) != set(EXECUTION_KEYS):
-        raise ValueError(f"Training mode requires every execution key: {', '.join(EXECUTION_KEYS)}")
     _execution_settings(execution)
     runtime = config.get("runtime", {})
     for key in ("wall_seconds", "budget_seconds"):
@@ -212,12 +210,12 @@ def _validate_training_run(config: dict[str, Any], execution: Any) -> None:
 
 
 def _execution_settings(execution: Any) -> dict[str, Any]:
-    """Validate an execution block and fill the defaults of the original 3-key form."""
-    if not isinstance(execution, dict) or not {"precision", "tf32", "deterministic"} <= set(
-        execution
-    ) <= set(EXECUTION_KEYS):
-        raise ValueError("Unsupported execution settings: unknown or missing keys")
-    settings = {"cudnn_benchmark": False, "autocast": "none", **execution}
+    """Validate an execution block holding exactly the EXECUTION_KEYS."""
+    if not isinstance(execution, dict) or set(execution) != set(EXECUTION_KEYS):
+        raise ValueError(
+            f"Unsupported execution settings: execution requires exactly {', '.join(EXECUTION_KEYS)}"
+        )
+    settings = dict(execution)
     if settings["precision"] != "fp32":
         raise ValueError("Unsupported execution settings: precision must be fp32")
     if any(type(settings[key]) is not bool for key in ("tf32", "deterministic", "cudnn_benchmark")):
@@ -233,10 +231,7 @@ def _execution_settings(execution: Any) -> dict[str, Any]:
 
 def _strict_execution(execution: Any) -> bool:
     """Reference and diagnostic runs keep the strict FP32 path."""
-    try:
-        settings = _execution_settings(execution)
-    except ValueError:
-        return False
+    settings = _execution_settings(execution)
     return (
         settings["tf32"] is False
         and settings["cudnn_benchmark"] is False

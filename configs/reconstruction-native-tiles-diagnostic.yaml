@@ -127,4 +127,6 @@ model:
 execution:
   precision: fp32
   tf32: false
+  cudnn_benchmark: false
   deterministic: false
+  autocast: none

@@ -41,7 +41,13 @@ def test_malformed_graph_metadata_is_not_bypassed_by_stub_keys(tmp_path):
 def test_inference_restores_execution_and_rejects_preprocessing_mismatch(tmp_path):
     path = tmp_path / "reference.pt"
     model = _TinyStub(nn.Conv3d(1, 3, 1))
-    execution = {"precision": "fp32", "tf32": False, "deterministic": True}
+    execution = {
+        "precision": "fp32",
+        "tf32": False,
+        "deterministic": True,
+        "cudnn_benchmark": False,
+        "autocast": "none",
+    }
     dataset = {"sampling": "native_slabs", "resize_dims": {"D": 12, "H": 224, "W": 224}}
     torch.save(
         {

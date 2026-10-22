@@ -11,6 +11,7 @@ from dense_unet_3d.dataset.slabs import spatial_config
 from dense_unet_3d.training.experiment import (
     EXECUTION_KEYS,
     REQUIRED_FIDELITY_KEYS,
+    configure_execution,
     experiment_metadata,
     preprocessing_identity,
     validate_experiment,
@@ -195,7 +196,7 @@ def test_training_mode_accepts_the_full_explicit_contract():
         ("experiment", "fidelity", "fidelity"),
         ("runtime", "wall_seconds", "wall_seconds"),
         ("runtime", "budget_seconds", "budget_seconds"),
-        *(("execution", key, "execution key") for key in EXECUTION_KEYS),
+        *(("execution", key, "execution requires exactly") for key in EXECUTION_KEYS),
     ],
 )
 def test_training_mode_rejects_each_missing_interpretation(section, key, message):
@@ -228,7 +229,7 @@ def test_training_mode_requires_crop_training_without_augmentation():
         ("execution", "cudnn_benchmark", "yes", "booleans"),
         ("execution", "precision", "bf16", "fp32"),
         ("execution", "deterministic", True, "excludes cudnn_benchmark"),
-        ("execution", "extra", 1, "execution key"),
+        ("execution", "extra", 1, "execution requires exactly"),
     ],
 )
 def test_training_mode_rejects_malformed_settings(section, key, value, message):
@@ -285,10 +286,16 @@ def test_reference_still_refuses_and_diagnostic_stays_strict():
     with pytest.raises(ValueError, match="not launchable"):
         validate_experiment(config)
     strict = diagnostic()
-    strict["execution"].update({"cudnn_benchmark": False, "autocast": "none"})
     validate_experiment(strict)
     for key, value in (("cudnn_benchmark", True), ("autocast", "bf16")):
         loose = deepcopy(strict)
         loose["execution"][key] = value
         with pytest.raises(ValueError, match="FP32"):
             validate_experiment(loose)
+
+
+def test_execution_block_requires_exactly_the_five_keys():
+    three_key = {"precision": "fp32", "tf32": False, "deterministic": False}
+    with pytest.raises(ValueError, match="requires exactly precision, tf32, deterministic"):
+        configure_execution({"execution": three_key})
+    configure_execution({})

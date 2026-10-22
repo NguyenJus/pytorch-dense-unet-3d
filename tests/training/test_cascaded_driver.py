@@ -1118,6 +1118,8 @@ def _one_step(tmp_path, execution: dict | None, model: nn.Module) -> tuple[float
             "precision": "fp32",
             "tf32": False,
             "deterministic": True,
+            "cudnn_benchmark": False,
+            "autocast": "none",
             **execution,
         }
     diagnostics: dict = {}
@@ -1143,7 +1145,7 @@ def test_bf16_autocast_wraps_forward_with_fp32_loss_and_params(tmp_path) -> None
     assert diagnostics["gradient_l2_max"] > 0
 
 
-@pytest.mark.parametrize("execution", [None, {}, {"autocast": "none"}])
+@pytest.mark.parametrize("execution", [None, {"autocast": "none"}])
 def test_autocast_none_or_absent_is_unchanged(tmp_path, execution) -> None:
     model = _AutocastProbe()
     loss, _ = _one_step(tmp_path, execution, model)
