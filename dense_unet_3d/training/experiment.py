@@ -218,18 +218,19 @@ def _execution_settings(execution: Any) -> dict[str, Any]:
         raise ValueError(
             f"Unsupported execution settings: execution requires exactly {', '.join(EXECUTION_KEYS)}"
         )
-    settings = dict(execution)
-    if settings["precision"] != "fp32":
+    if execution["precision"] != "fp32":
         raise ValueError("Unsupported execution settings: precision must be fp32")
-    if any(type(settings[key]) is not bool for key in ("tf32", "deterministic", "cudnn_benchmark")):
+    if any(
+        type(execution[key]) is not bool for key in ("tf32", "deterministic", "cudnn_benchmark")
+    ):
         raise ValueError(
             "Unsupported execution settings: tf32, deterministic and cudnn_benchmark are booleans"
         )
-    if settings["autocast"] not in ("none", "bf16"):
+    if execution["autocast"] not in ("none", "bf16"):
         raise ValueError("Unsupported execution settings: autocast must be none or bf16")
-    if settings["deterministic"] and settings["cudnn_benchmark"]:
+    if execution["deterministic"] and execution["cudnn_benchmark"]:
         raise ValueError("Unsupported execution settings: deterministic excludes cudnn_benchmark")
-    return settings
+    return execution
 
 
 def _strict_execution(execution: Any) -> bool:
