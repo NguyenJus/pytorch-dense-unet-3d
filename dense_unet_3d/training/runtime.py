@@ -90,6 +90,9 @@ def config_identity(config: dict[str, Any]) -> str:
     value["validation_every"] = runtime.get("validation_every", 1)
     for key in ("model_save_dir", "results_save_dir", "run_name"):
         value.get("pathing", {}).pop(key, None)
+    # Validation batching only; predictions are array-equal across batch sizes, and an
+    # operator must be able to lower it after a GPU OOM without breaking exact resume.
+    value.get("dataset", {}).pop("inference_batch", None)
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 

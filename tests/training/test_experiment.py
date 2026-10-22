@@ -108,6 +108,15 @@ def test_experiment_identity_changes_with_semantics(section, key, value):
     assert config_identity(config) != config_identity(changed)
 
 
+def test_resume_identity_ignores_inference_batch():
+    config = diagnostic()
+    config["dataset"]["inference_batch"] = 4
+    lowered = deepcopy(config)
+    lowered["dataset"]["inference_batch"] = 2
+    assert config_identity(config) == config_identity(lowered)
+    assert experiment_metadata(config) == experiment_metadata(lowered)
+
+
 FIDELITY = {
     key: {"label": "INFERRED", "evidence": f"spec section 2 row for {key}"}
     for key in REQUIRED_FIDELITY_KEYS

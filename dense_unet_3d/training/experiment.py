@@ -271,6 +271,9 @@ def experiment_metadata(config: dict[str, Any]) -> dict[str, Any]:
                 ("optimizer_semantics", "pytorch_gradient_buffer"),
             )
         },
-        "dataset_config": config.get("dataset", {}),
+        # inference_batch is excluded for the same reason as in config_identity.
+        "dataset_config": {
+            k: v for k, v in config.get("dataset", {}).items() if k != "inference_batch"
+        },
         "preprocessing_identity": preprocessing_identity(config),
     }
