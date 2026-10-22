@@ -1,10 +1,13 @@
 import json
 import os
+from pathlib import Path
 from typing import Any
 
+import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
+from dense_unet_3d.dataset.foreground_crops import CropSampler, ForegroundCropDataset
 from dense_unet_3d.dataset.LITSDataset import LITSDataset, _case_id, discover_pairs, preflight_pairs
 from dense_unet_3d.dataset.slabs import NativeSlabDataset, spatial_config
 from dense_unet_3d.dataset.transforms.ClampValues import ClampValues
@@ -179,7 +182,7 @@ def prepare_dataset(
     train: bool,
     *,
     detect_tumors: bool = True,
-) -> LITSDataset | NativeSlabDataset:
+) -> LITSDataset | NativeSlabDataset | ForegroundCropDataset:
     """
     Builds the dataset based on user configuration
 
@@ -187,7 +190,8 @@ def prepare_dataset(
     :param train:   boolean to tell whether to pull training or testing images
     :param detect_tumors: when ``False``, collapse tumour label 2 to liver
         label 1 for the Phase A liver-only task.
-    :return:        a created LITSDataset class
+    :return:        LITSDataset, NativeSlabDataset (native slabs/tiles), or
+        ForegroundCropDataset (foreground_crops_v1 training)
     """
     if train:
         img_dirs = config["pathing"]["train_img_dirs"]
@@ -221,6 +225,18 @@ def prepare_dataset(
         _validate_split_manifest(
             config, "train" if train else "validation", discover_pairs(img_dirs)
         )
+        if train and config["dataset"].get("training_representation") == "foreground_crops_v1":
+            pathing = config["pathing"]
+            cache_path = (
+                Path(pathing["model_save_dir"]) / pathing["run_name"] / "foreground-index.npz"
+                if "model_save_dir" in pathing and "run_name" in pathing
+                else None
+            )
+            if cache_path is not None:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+            return ForegroundCropDataset(
+                img_dirs, config["dataset"], cache_path=cache_path, detect_tumors=detect_tumors
+            )
         return NativeSlabDataset(img_dirs, config["dataset"], detect_tumors=detect_tumors)
 
     transform = compose_transforms(config, train=train)
@@ -253,8 +269,41 @@ def prepare_dataloader(
     :param detect_tumors: when ``False``, return liver-only labels for Phase A.
     :return:        DataLoader class with dataset loaded
     """
-    dataset = prepare_dataset(config, train, detect_tumors=detect_tumors)
+    # Validate loader keys before building the dataset: crop datasets hash and index
+    # every training mask first.
     batch_size = config["dataset"]["batch_size"]
+    options: dict[str, Any] = {}
+    if train:
+        dataset_config = config["dataset"]
+        num_workers = dataset_config.get("num_workers", 0)
+        if isinstance(num_workers, bool) or not isinstance(num_workers, int) or num_workers < 0:
+            raise ValueError("dataset.num_workers must be a non-negative integer")
+        pin_memory = dataset_config.get("pin_memory", False)
+        persistent = dataset_config.get("persistent_workers", num_workers > 0)
+        for name, value in (("pin_memory", pin_memory), ("persistent_workers", persistent)):
+            if not isinstance(value, bool):
+                raise ValueError(f"dataset.{name} must be a boolean")
+        if persistent and num_workers == 0:
+            raise ValueError("dataset.persistent_workers requires dataset.num_workers > 0")
+        if (
+            dataset_config.get("training_representation") == "foreground_crops_v1"
+            and dataset_config.get("shuffle", True) is not True
+        ):
+            raise ValueError("foreground_crops_v1 requires dataset.shuffle to be absent or true")
+        options = {
+            "num_workers": num_workers,
+            "pin_memory": pin_memory,
+            "persistent_workers": persistent,
+        }
+    dataset = prepare_dataset(config, train, detect_tumors=detect_tumors)
+    if isinstance(dataset, ForegroundCropDataset):
+        generator = torch.Generator().manual_seed(dataset.geometry["sampling_seed"])
+        return DataLoader(
+            dataset=dataset,
+            batch_size=batch_size,
+            sampler=CropSampler(len(dataset), generator),
+            **options,
+        )
     # Never shuffle validation/test data — keeps evaluation deterministic.
     shuffle = config["dataset"]["shuffle"] if train else False
 
@@ -262,6 +311,7 @@ def prepare_dataloader(
         dataset=dataset,
         batch_size=batch_size,
         shuffle=shuffle,
+        **options,
     )
 
     return dataloader

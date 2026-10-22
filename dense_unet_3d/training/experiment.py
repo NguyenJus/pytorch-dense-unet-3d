@@ -13,11 +13,53 @@ import torch
 
 PREPROCESSING_SCHEMA_VERSION = 1
 
+# One entry per INFERRED or DEVIATION row of the paper-faithful fidelity ledger
+# (docs/specs/2026-10-21-paper-faithful-training-run-design.md, section 2).
+REQUIRED_FIDELITY_KEYS = (
+    "stem_pool_padding",
+    "transition_stride",
+    "decoder_interpolation",
+    "batch_norm_defaults",
+    "initialization",
+    "split",
+    "training_sample",
+    "step_unit",
+    "mirror",
+    "scaling",
+    "inference_tiling",
+    "batch_size",
+    "optimizer_semantics",
+    "phase_transfer_reset",
+    "phase_b_epochs",
+    "best_selection",
+    "execution",
+)
+FIDELITY_LABELS = ("LITERAL", "INFERRED", "DEVIATION")
+EXECUTION_KEYS = ("precision", "tf32", "deterministic", "cudnn_benchmark", "autocast")
+
 
 def preprocessing_identity(config: dict[str, Any]) -> dict[str, Any]:
     """Identify preprocessing code semantics that configuration alone cannot express."""
     from dense_unet_3d.dataset.prepare_dataset import sampling_mode
 
+    dataset = config.get("dataset")
+    if (
+        isinstance(dataset, dict)
+        and dataset.get("training_representation") == "foreground_crops_v1"
+    ):
+        from dense_unet_3d.dataset.foreground_crops import crop_config
+        from dense_unet_3d.dataset.slabs import spatial_config
+
+        # Training crops and inference tiles share one dataset block; record both.
+        return {
+            "schema_version": PREPROCESSING_SCHEMA_VERSION,
+            "sampling": sampling_mode(config),
+            "coordinate_grid": "native_tiles_v1",
+            "geometry": spatial_config(config["dataset"]),
+            "training": "foreground_crops_v1",
+            "inference": "native_tiles_v1",
+            "training_geometry": crop_config(config["dataset"]),
+        }
     if (
         sampling_mode(config) == "native_slabs"
         and config.get("dataset", {}).get("inplane_representation") == "native_tiles_v1"
@@ -52,6 +94,9 @@ def validate_experiment(config: dict[str, Any]) -> None:
     # All launch paths share these two canonical data representations. Validate
     # before preflight so a misspelled mode cannot trigger an expensive scan.
     preprocessing_identity(config)
+    # Checked before the early returns so a bad block fails before the expensive preflight.
+    if config.get("execution") is not None:
+        _execution_settings(config["execution"])
     experiment = config.get("experiment")
     if experiment is None:
         return
@@ -69,8 +114,11 @@ def validate_experiment(config: dict[str, Any]) -> None:
         raise ValueError("Reconstruction requires explicit three_class phase A targets")
     if training.get("loss_reduction") != "valid_voxel_mean":
         raise ValueError("Reconstruction requires explicit valid_voxel_mean loss")
-    if training.get("step_unit") != "minibatch_update":
-        raise ValueError("Reconstruction requires explicit minibatch_update interpretation")
+    mode = experiment.get("mode")
+    # A training run counts passes over the cases; diagnostics count updates.
+    step_unit = "training_pass" if mode == "training" else "minibatch_update"
+    if training.get("step_unit") != step_unit:
+        raise ValueError(f"Reconstruction requires explicit {step_unit} interpretation")
     if config.get("dataset", {}).get("sampling") != "native_slabs":
         raise ValueError("Reconstruction requires explicit native_slabs sampling")
     if not config.get("model"):
@@ -94,13 +142,15 @@ def validate_experiment(config: dict[str, Any]) -> None:
     if not experiment.get("split_manifest"):
         raise ValueError("Reconstruction requires a recorded split_manifest")
     execution = config.get("execution", {})
-    if not _supported_execution(execution):
+    if mode == "training":
+        _validate_training_run(config, execution)
+        return
+    if not _strict_execution(execution):
         raise ValueError("Only the explicit FP32 execution reference is supported")
-    mode = experiment.get("mode")
     if mode == "reference":
         raise ValueError("Reference reconstruction is not launchable: unresolved research gates")
     if mode != "diagnostic":
-        raise ValueError("Reconstruction currently supports bounded diagnostic mode only")
+        raise ValueError("Reconstruction supports training or bounded diagnostic mode only")
     max_updates = experiment.get("max_updates")
     if type(max_updates) is not int or max_updates < 1:
         raise ValueError("Diagnostic max_updates must be a positive integer")
@@ -116,13 +166,80 @@ def validate_experiment(config: dict[str, Any]) -> None:
         raise ValueError("Reconstruction diagnostics require finite runtime.wall_seconds")
 
 
-def _supported_execution(execution: Any) -> bool:
+def _validate_training_run(config: dict[str, Any], execution: Any) -> None:
+    """Every interpretation of a training run is explicit; nothing is defaulted."""
+    training, dataset = config["training"], config["dataset"]
+    for key, value in (
+        ("phase_transfer_policy", "best_weights_fresh_optimizer"),
+        ("optimizer_semantics", "pytorch_gradient_buffer"),
+    ):
+        if training.get(key) != value:
+            raise ValueError(f"Training mode requires explicit training.{key}={value}")
+    for key, value in (
+        ("training_representation", "foreground_crops_v1"),
+        ("inplane_representation", "native_tiles_v1"),
+    ):
+        if dataset.get(key) != value:
+            raise ValueError(f"Training mode requires explicit dataset.{key}={value}")
+    _execution_settings(execution)
+    runtime = config.get("runtime", {})
+    for key in ("wall_seconds", "budget_seconds"):
+        value = runtime.get(key)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+        ):
+            raise ValueError(f"Training mode requires finite positive runtime.{key}")
+    fidelity = config["experiment"].get("fidelity")
+    if not isinstance(fidelity, dict):
+        raise ValueError("Training mode requires an experiment.fidelity mapping")
+    missing = [key for key in REQUIRED_FIDELITY_KEYS if key not in fidelity]
+    if missing:
+        raise ValueError(f"experiment.fidelity is missing {', '.join(missing)}")
+    for key, entry in fidelity.items():
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"label", "evidence"}
+            or entry["label"] not in FIDELITY_LABELS
+            or not isinstance(entry["evidence"], str)
+            or not entry["evidence"].strip()
+        ):
+            raise ValueError(
+                f"experiment.fidelity.{key} must be {{label: LITERAL|INFERRED|DEVIATION, "
+                "evidence: non-empty string}"
+            )
+
+
+def _execution_settings(execution: Any) -> dict[str, Any]:
+    """Validate an execution block holding exactly the EXECUTION_KEYS."""
+    if not isinstance(execution, dict) or set(execution) != set(EXECUTION_KEYS):
+        raise ValueError(
+            f"Unsupported execution settings: execution requires exactly {', '.join(EXECUTION_KEYS)}"
+        )
+    if execution["precision"] != "fp32":
+        raise ValueError("Unsupported execution settings: precision must be fp32")
+    if any(
+        type(execution[key]) is not bool for key in ("tf32", "deterministic", "cudnn_benchmark")
+    ):
+        raise ValueError(
+            "Unsupported execution settings: tf32, deterministic and cudnn_benchmark are booleans"
+        )
+    if execution["autocast"] not in ("none", "bf16"):
+        raise ValueError("Unsupported execution settings: autocast must be none or bf16")
+    if execution["deterministic"] and execution["cudnn_benchmark"]:
+        raise ValueError("Unsupported execution settings: deterministic excludes cudnn_benchmark")
+    return execution
+
+
+def _strict_execution(execution: Any) -> bool:
+    """Reference and diagnostic runs keep the strict FP32 path."""
+    settings = _execution_settings(execution)
     return (
-        isinstance(execution, dict)
-        and set(execution) == {"precision", "tf32", "deterministic"}
-        and execution["precision"] == "fp32"
-        and execution["tf32"] is False
-        and type(execution["deterministic"]) is bool
+        settings["tf32"] is False
+        and settings["cudnn_benchmark"] is False
+        and settings["autocast"] == "none"
     )
 
 
@@ -131,16 +248,16 @@ def configure_execution(config: dict[str, Any]) -> None:
     execution = config.get("execution")
     if execution is None:
         return
-    if not _supported_execution(execution):
-        raise ValueError("Unsupported execution settings; use the FP32 reference")
-    torch.backends.cuda.matmul.allow_tf32 = False
-    torch.backends.cudnn.allow_tf32 = False
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
-    # cuDNN algorithm choice remains deterministic. CUDA MaxPool3d backward
-    # uses atomic accumulation, so strict global determinism is a separate
-    # explicit setting, with replay tolerances recorded by GPU diagnostics.
-    torch.use_deterministic_algorithms(execution["deterministic"])
+    settings = _execution_settings(execution)
+    torch.backends.cuda.matmul.allow_tf32 = settings["tf32"]
+    torch.backends.cudnn.allow_tf32 = settings["tf32"]
+    torch.backends.cudnn.benchmark = settings["cudnn_benchmark"]
+    torch.backends.cudnn.deterministic = not settings["cudnn_benchmark"]
+    # Without benchmark, cuDNN algorithm choice remains deterministic. CUDA
+    # MaxPool3d backward uses atomic accumulation, so strict global determinism
+    # is a separate explicit setting, with replay tolerances recorded by GPU
+    # diagnostics. Autocast is applied by the training step, not here.
+    torch.use_deterministic_algorithms(settings["deterministic"])
 
 
 def experiment_metadata(config: dict[str, Any]) -> dict[str, Any]:
@@ -158,6 +275,9 @@ def experiment_metadata(config: dict[str, Any]) -> dict[str, Any]:
                 ("optimizer_semantics", "pytorch_gradient_buffer"),
             )
         },
-        "dataset_config": config.get("dataset", {}),
+        # inference_batch is excluded for the same reason as in config_identity.
+        "dataset_config": {
+            k: v for k, v in config.get("dataset", {}).items() if k != "inference_batch"
+        },
         "preprocessing_identity": preprocessing_identity(config),
     }

@@ -55,9 +55,13 @@ def test_overlap_averages_probabilities_before_argmax():
             self.calls = 0
 
         def forward(self, image):
-            values = [0.51, 0.48, 0.01] if self.calls == 0 else [0.01, 0.98, 0.01]
-            self.calls += 1
-            return torch.tensor(values).log()[None, :, None, None, None].expand(1, 3, 12, 1, 1)
+            # Per tile, in predictor order: the first tile conflicts with the rest.
+            tiles = []
+            for _ in range(image.shape[0]):
+                values = [0.51, 0.48, 0.01] if self.calls == 0 else [0.01, 0.98, 0.01]
+                self.calls += 1
+                tiles.append(torch.tensor(values).log()[:, None, None, None].expand(3, 12, 1, 1))
+            return torch.stack(tiles)
 
     image = nib.Nifti1Image(np.zeros((1, 1, 13)), np.eye(4))
     pred = predict_volume(ConflictingModel(), torch.device("cpu"), image, config(1, 1))
@@ -80,4 +84,97 @@ def test_predictor_image_only_nonfinite_and_interruption():
     with pytest.raises(PredictionInterrupted):
         predict_volume(
             LabelModel(), torch.device("cpu"), bad, config(), stop_requested=lambda: "stop"
+        )
+
+
+class RampModel(nn.Module):
+    """Elementwise, batch-invariant logits that differ between overlapping tiles."""
+
+    def __init__(self):
+        super().__init__()
+        self.batch_sizes: list[int] = []
+
+    def forward(self, image):
+        self.batch_sizes.append(image.shape[0])
+        x = image[:, 0]
+        return torch.stack([(x * 0.37).sin(), (x * 0.11).cos(), (x * 0.05).sin() * 2], dim=1)
+
+
+def tiles(height, width, depth):
+    return {
+        **config(height, width, depth),
+        "sampling": "native_slabs",
+        "resize_img": False,
+        "inplane_representation": "native_tiles_v1",
+    }
+
+
+@pytest.mark.parametrize(
+    ("shape", "cfg"),
+    [
+        ((5, 7, 25), config()),
+        ((5, 7, 3), config()),
+        ((9, 11, 13), config(4, 6, 5)),
+        ((5, 7, 5), tiles(3, 4, 2)),
+        ((9, 11, 13), tiles(4, 6, 5)),
+        ((2, 3, 1), tiles(3, 4, 2)),
+    ],
+)
+def test_batched_prediction_is_array_equal_to_batch_one(shape, cfg):
+    ramp = np.arange(np.prod(shape), dtype=np.float32).reshape(shape) * 0.7 - 40
+    image = nib.Nifti1Image(ramp, np.eye(4))
+    one, eight = RampModel(), RampModel()
+    single = predict_volume(one, torch.device("cpu"), image, {**cfg, "inference_batch": 1})
+    batched = predict_volume(eight, torch.device("cpu"), image, {**cfg, "inference_batch": 8})
+    assert single.dtype == batched.dtype == np.uint8
+    np.testing.assert_array_equal(batched, single)
+    assert set(one.batch_sizes) == {1}
+    assert sum(eight.batch_sizes) == len(one.batch_sizes)
+    assert eight.batch_sizes == [8] * (len(one.batch_sizes) // 8) + (
+        [len(one.batch_sizes) % 8] if len(one.batch_sizes) % 8 else []
+    )
+
+
+@pytest.mark.parametrize("native", [True, False])
+def test_predictor_loads_case_image_once(native):
+    class CountingProxy:
+        def __init__(self, array):
+            self.array, self.reads = array, 0
+            self.shape, self.ndim = array.shape, array.ndim
+
+        def __array__(self, dtype=None, copy=None):
+            self.reads += 1
+            return self.array.astype(dtype or self.array.dtype)
+
+        def __getitem__(self, key):
+            self.reads += 1
+            return self.array[key]
+
+    labels = np.zeros((9, 11, 13), dtype=np.float32)
+    labels[2:5, 3:8, 4:9] = 1
+    labels[3, 4, 5:7] = 2
+    image = nib.Nifti1Image(labels, np.eye(4))
+    proxy = CountingProxy(labels)
+    image._dataobj = proxy
+    cfg = tiles(4, 6, 5) if native else config(4, 6, 5)
+    pred = predict_volume(LabelModel(), torch.device("cpu"), image, cfg)
+    assert proxy.reads == 1
+    if native:
+        np.testing.assert_array_equal(pred, labels)
+
+
+def test_native_evaluation_forwards_dataset_inference_batch(tmp_path):
+    write_case(tmp_path, "a", np.zeros((5, 7, 5), dtype=np.uint8))
+    dataset = NativeSlabDataset([str(tmp_path)], {**tiles(3, 4, 2), "inference_batch": 5})
+    model = RampModel()
+    evaluate(model, torch.device("cpu"), DataLoader(dataset))
+    assert model.batch_sizes == [5, 5, 2]
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 2.0, "8"])
+def test_predictor_rejects_invalid_inference_batch(bad):
+    image = nib.Nifti1Image(np.zeros((5, 7, 3)), np.eye(4))
+    with pytest.raises(ValueError, match="inference_batch must be a positive integer"):
+        predict_volume(
+            LabelModel(), torch.device("cpu"), image, {**config(), "inference_batch": bad}
         )

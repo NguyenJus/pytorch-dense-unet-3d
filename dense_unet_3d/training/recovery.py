@@ -1,4 +1,11 @@
-"""Epoch-boundary continuation for standard single-process PyTorch loaders."""
+"""Epoch-boundary continuation for standard PyTorch loaders.
+
+Single-process loaders resume exactly. Loader workers are accepted only for
+datasets whose randomness travels with the sampled index (foreground crops,
+native slabs). With workers > 0, continuation is epoch-exact, not
+sample-order-bitwise: the restored sampler generator replays the same crop
+parameters, but worker scheduling and seeding may change the run afterwards.
+"""
 
 from __future__ import annotations
 
@@ -118,9 +125,13 @@ def _dataset_identity(dataset: Any, file_cache: dict[str, Any] | None = None) ->
                 for t in dataset.tensors
             ]
         }
+    from dense_unet_3d.dataset.foreground_crops import ForegroundCropDataset
     from dense_unet_3d.dataset.LITSDataset import LITSDataset
     from dense_unet_3d.dataset.slabs import NativeSlabDataset
 
+    if type(dataset) is ForegroundCropDataset:
+        # The dataset already hashed these files at construction; hash each file once.
+        return {"manifest": dataset.manifest(), "files": dataset.source_identity}
     if type(dataset) is NativeSlabDataset:
         return {
             "manifest": dataset.manifest(),
@@ -146,20 +157,63 @@ def _dataset_identity(dataset: Any, file_cache: dict[str, Any] | None = None) ->
             "crop_to_liver": dataset.crop_to_liver,
             "preprocessing": preprocessing,
         }
-    raise ValueError("Exact resume supports only TensorDataset, LITSDataset and Subset datasets")
+    raise ValueError(
+        "Exact resume supports only TensorDataset, LITSDataset, NativeSlabDataset, "
+        "ForegroundCropDataset and Subset datasets"
+    )
 
 
 def _loader_identity(loader: DataLoader | None, file_cache: dict[str, Any] | None = None) -> Any:
+    from dense_unet_3d.dataset.foreground_crops import CropSampler, ForegroundCropDataset
+    from dense_unet_3d.dataset.slabs import NativeSlabDataset
+
     if loader is None:
         return None
     if (
         type(loader) is not DataLoader
-        or loader.num_workers != 0
-        or type(loader.sampler) not in (RandomSampler, SequentialSampler)
+        or type(loader.sampler) not in (RandomSampler, SequentialSampler, CropSampler)
         or type(loader.batch_sampler) is not BatchSampler
     ):
         raise ValueError(
-            "Exact resume requires standard DataLoader, num_workers=0 and standard samplers"
+            "Exact resume requires standard DataLoader, BatchSampler and a Random, "
+            "Sequential or Crop sampler"
+        )
+    if loader.worker_init_fn is not None:
+        raise ValueError("Exact resume requires worker_init_fn=None")
+    workers = {
+        "num_workers": loader.num_workers,
+        "pin_memory": loader.pin_memory,
+        "persistent_workers": loader.persistent_workers,
+        "prefetch_factor": loader.prefetch_factor,
+    }
+    default_workers = {
+        "num_workers": 0,
+        "pin_memory": False,
+        "persistent_workers": False,
+        "prefetch_factor": None,
+    }
+    # Workers leave items unchanged only where randomness travels with the index
+    # (crop item seeds) or there is none (native slabs). LITS transforms draw
+    # from the global NumPy RNG inside each worker.
+    if workers != default_workers and type(loader.dataset) not in (
+        NativeSlabDataset,
+        ForegroundCropDataset,
+    ):
+        raise ValueError(
+            "Exact resume requires num_workers=0 for LITSDataset and other datasets whose "
+            "items use process-local randomness; workers, pin_memory and persistent_workers "
+            "are supported only for NativeSlabDataset and ForegroundCropDataset"
+        )
+    # A persistent-worker iterator draws its base seed from the global torch RNG only
+    # once, so after a resume an unseeded RandomSampler draws a different permutation.
+    if (
+        loader.persistent_workers
+        and type(loader.sampler) is RandomSampler
+        and loader.sampler.generator is None
+    ):
+        raise ValueError(
+            "Exact resume refuses persistent_workers with a RandomSampler that has no "
+            "generator: the global RNG stream shifts across a resume"
         )
     from torch.utils.data._utils.collate import default_collate
 
@@ -172,6 +226,7 @@ def _loader_identity(loader: DataLoader | None, file_cache: dict[str, Any] | Non
         "sampler": type(loader.sampler).__name__,
         "replacement": getattr(loader.sampler, "replacement", None),
         "num_samples": getattr(loader.sampler, "num_samples", None),
+        "workers": workers,
     }
 
 
@@ -371,6 +426,20 @@ def _validate_checkpoint(
                     raise ValueError(f"Incompatible checkpoint metadata: {key}")
 
 
+def _resolve_training_pass_counts(
+    schedule: dict[str, Any], phase: str, batches: int, config: dict[str, Any]
+) -> None:
+    """Recompute every count derived from steps_per_epoch for a loader of ``batches``."""
+    phase_schedule = schedule["phases"][phase]
+    phase_schedule["steps_per_epoch"] = batches
+    phase_schedule["updates"] = phase_schedule["epochs"] * batches
+    schedule["total_updates"] = sum(p["updates"] for p in schedule["phases"].values())
+    if "learning_rate" in phase_schedule:
+        plateau = config["training"]["scheduler_step"] * batches
+        phase_schedule["learning_rate"]["updates_between_decays"] = plateau
+        phase_schedule["updates_per_lr_plateau"] = plateau
+
+
 def run_recoverable(
     config: dict[str, Any],
     model: Any,
@@ -397,6 +466,10 @@ def run_recoverable(
     for phase, loader in (("phase_a", loaders[0]), ("phase_b", loaders[2])):
         if loader is None or not len(loader):
             raise ValueError("Training requires a nonempty loader")
+        if schedule["phases"][phase].get("step_unit") == "training_pass":
+            # One epoch is one loader pass; the dataset already holds every pass.
+            # Resolved before checkpoint validation so global_step uses this count.
+            _resolve_training_pass_counts(schedule, phase, len(loader), config)
         batch_size = loader.batch_size
         if batch_size is None:
             raise ValueError("Training requires explicit microbatch size")

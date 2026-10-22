@@ -92,14 +92,16 @@ def test_pixel_overlap_uses_probability_mean_then_argmax():
             self.calls = 0
 
         def forward(self, image):
-            values = [0.51, 0.48, 0.01] if self.calls == 0 else [0.01, 0.98, 0.01]
-            self.calls += 1
-            # Padded output strongly tumor; must not reach native grid.
-            result = (
-                torch.tensor(values).log()[None, :, None, None, None].expand(1, 3, 2, 3, 4).clone()
-            )
-            result[:, :, 1] = torch.tensor([0.01, 0.01, 0.98]).log()[None, :, None, None]
-            return result
+            # Per tile, in predictor order: the first tile conflicts with the rest.
+            tiles = []
+            for _ in range(image.shape[0]):
+                values = [0.51, 0.48, 0.01] if self.calls == 0 else [0.01, 0.98, 0.01]
+                self.calls += 1
+                # Padded output strongly tumor; must not reach native grid.
+                result = torch.tensor(values).log()[:, None, None, None].expand(3, 2, 3, 4).clone()
+                result[:, 1] = torch.tensor([0.01, 0.01, 0.98]).log()[:, None, None]
+                tiles.append(result)
+            return torch.stack(tiles)
 
     image = nib.Nifti1Image(np.zeros((5, 1, 1)), np.eye(4))
     model = Conflicts()

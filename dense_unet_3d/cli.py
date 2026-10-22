@@ -143,6 +143,7 @@ def _load_model_from_checkpoint(
             for key, default in (
                 ("sampling", "whole_volume"),
                 ("inplane_representation", "full_fov_resize"),
+                ("training_representation", None),
                 ("resize_dims", {"D": 12, "H": 224, "W": 224}),
                 ("clamp_hu", True),
                 ("clamp_hu_range", {"min": -200, "max": 250}),
@@ -267,6 +268,15 @@ def _print_training_plan(config: dict[str, Any], args: argparse.Namespace) -> No
     for phase in schedule["phases"].values():
         phase["validation_passes"] = (phase["epochs"] + cadence - 1) // cadence
     sys.stdout.write("Resolved training plan:\n" + json.dumps(schedule, sort_keys=True) + "\n")
+    for name, phase in schedule["phases"].items():
+        if phase.get("step_unit") == "training_pass":
+            passes, samples = phase["passes_per_epoch"], phase["samples_per_epoch"]
+            sys.stdout.write(
+                f"{name}: {passes} passes x {samples // passes} cases = {samples} samples/epoch, "
+                f"{phase['steps_per_epoch']} updates/epoch, {phase['updates']} updates.\n"
+            )
+    for key, entry in schedule.get("fidelity", {}).items():
+        sys.stdout.write(f"Fidelity {key}: {entry['label']}\n")
     for warning in schedule["warnings"]:
         sys.stdout.write(f"Schedule warning: {warning}\n")
     sys.stdout.write(
@@ -328,8 +338,11 @@ def _cmd_train(args: argparse.Namespace) -> None:
             )
             phase_a_train_loader = _make_dry_run_loader(detect_tumors=three_class_a)
             phase_a_val_loader = _make_dry_run_loader(detect_tumors=three_class_a)
-            phase_b_train_loader = _make_dry_run_loader()
-            phase_b_val_loader = _make_dry_run_loader()
+            if three_class_a:
+                phase_b_train_loader, phase_b_val_loader = phase_a_train_loader, phase_a_val_loader
+            else:
+                phase_b_train_loader = _make_dry_run_loader()
+                phase_b_val_loader = _make_dry_run_loader()
         else:
             from dense_unet_3d.dataset.prepare_dataset import (
                 discover_pairs,
@@ -338,6 +351,7 @@ def _cmd_train(args: argparse.Namespace) -> None:
             )
             from dense_unet_3d.model.config import build_model
             from dense_unet_3d.training.experiment import configure_execution
+            from dense_unet_3d.training.runtime import describe_schedule
 
             pairs = discover_pairs(config["pathing"]["test_img_dirs"])
             batch_size = config["dataset"]["batch_size"]
@@ -363,8 +377,26 @@ def _cmd_train(args: argparse.Namespace) -> None:
             phase_a_val_loader = prepare_dataloader(
                 config, train=False, detect_tumors=three_class_a
             )
-            phase_b_train_loader = prepare_dataloader(config, train=True, detect_tumors=True)
-            phase_b_val_loader = prepare_dataloader(config, train=False, detect_tumors=True)
+            if three_class_a:
+                # Both phases are three-class: Phase B continues the same loaders,
+                # so its crops continue one RNG stream and one index is built.
+                phase_b_train_loader, phase_b_val_loader = phase_a_train_loader, phase_a_val_loader
+            else:
+                phase_b_train_loader = prepare_dataloader(config, train=True, detect_tumors=True)
+                phase_b_val_loader = prepare_dataloader(config, train=False, detect_tumors=True)
+            for phase, planned in describe_schedule(config)["phases"].items():
+                if planned.get("step_unit") != "training_pass":
+                    continue
+                batches = len(phase_a_train_loader if phase == "phase_a" else phase_b_train_loader)
+                if batches != planned["steps_per_epoch"]:
+                    raise ValueError(
+                        f"{phase} training loader has {batches} minibatches but the schedule "
+                        f"plans {planned['steps_per_epoch']} updates per epoch"
+                    )
+                sys.stdout.write(
+                    f"{phase}: {planned['samples_per_epoch']} samples/epoch, "
+                    f"{batches} updates/epoch.\n"
+                )
             for name, loader in (
                 ("train", phase_a_train_loader),
                 ("validation", phase_a_val_loader),

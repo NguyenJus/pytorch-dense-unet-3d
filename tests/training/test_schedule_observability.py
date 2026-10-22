@@ -124,3 +124,84 @@ def test_epoch_events_report_used_and_next_lr(tmp_path, enabled, capsys):
     output = capsys.readouterr().out
     assert "next_lr=" in output
     assert "tumor_dice=" in output
+
+
+def _training_pass_config(tmp_path, *, n_train=105, steps=10):
+    manifest = tmp_path / "split.json"
+    manifest.write_text(json.dumps({"case_ids": {"train": [str(i) for i in range(n_train)]}}))
+    cfg = config(tmp_path)
+    cfg["training"].update(
+        step_unit="training_pass",
+        phase_a_epochs=100,
+        phase_b_epochs=100,
+        phase_a_steps_per_epoch=steps,
+        phase_b_steps_per_epoch=steps,
+        scheduler_step=10,
+        scheduler_gamma=0.5,
+    )
+    cfg["dataset"] = {"passes_per_epoch": 10, "batch_size": 2}
+    cfg["experiment"] = {
+        "split_manifest": str(manifest),
+        "fidelity": {"phase_b_epochs": {"label": "DEVIATION", "evidence": "x"}},
+    }
+    return cfg
+
+
+def test_training_pass_schedule_reports_passes_samples_and_updates(tmp_path):
+    plan = describe_schedule(_training_pass_config(tmp_path))
+    for phase in plan["phases"].values():
+        assert phase["step_unit"] == "training_pass"
+        assert phase["passes_per_epoch"] == 10
+        assert phase["samples_per_epoch"] == 1050
+        assert phase["steps_per_epoch"] == 525
+        assert phase["updates"] == 52_500
+        assert phase["samples_per_lr_plateau"] == 10_500
+        assert phase["updates_per_lr_plateau"] == 5_250
+        assert phase["learning_rate"]["updates_between_decays"] == 5_250
+    assert plan["total_updates"] == 105_000
+    assert plan["fidelity"]["phase_b_epochs"]["label"] == "DEVIATION"
+
+
+def test_training_pass_requires_steps_equal_passes(tmp_path):
+    with pytest.raises(ValueError, match="must equal dataset.passes_per_epoch"):
+        describe_schedule(_training_pass_config(tmp_path, steps=2))
+
+
+@pytest.mark.parametrize(
+    "section,key",
+    [
+        ("experiment", "split_manifest"),
+        ("experiment", "fidelity"),
+        ("dataset", "passes_per_epoch"),
+        ("dataset", "batch_size"),
+    ],
+)
+def test_training_pass_missing_config_key_names_it(tmp_path, section, key):
+    cfg = _training_pass_config(tmp_path)
+    del cfg[section][key]
+    with pytest.raises(ValueError, match=f"{section}.{key}"):
+        describe_schedule(cfg)
+
+
+def test_minibatch_update_schedule_has_no_training_pass_fields(tmp_path):
+    plan = describe_schedule(config(tmp_path))
+    assert "fidelity" not in plan
+    assert set(plan["phases"]["phase_a"]) == {
+        "epochs",
+        "steps_per_epoch",
+        "updates",
+        "learning_rate",
+    }
+
+
+def test_run_session_injects_budget_seconds_into_validated_config(tmp_path, monkeypatch):
+    from dense_unet_3d.training import experiment
+    from dense_unet_3d.training.runtime import RunSession
+
+    seen = {}
+    monkeypatch.setattr(experiment, "validate_experiment", seen.update)
+    cfg = config(tmp_path)
+    del cfg["runtime"]["budget_seconds"]
+    RunSession(cfg, wall_seconds=50, budget_seconds=77)
+    assert seen["runtime"]["budget_seconds"] == 77
+    assert seen["runtime"]["wall_seconds"] == 50

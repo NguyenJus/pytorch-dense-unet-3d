@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import nibabel as nib
@@ -144,6 +145,66 @@ def test_unresolved_augmentation_requires_explicit_disable(tmp_path):
         NativeSlabDataset([str(tmp_path)], {**config(), "random_hflip": True})
 
 
+def crop_config(**update):
+    return {
+        **config(),
+        "inplane_representation": "native_tiles_v1",
+        "sampling": "native_slabs",
+        "resize_img": False,
+        **update,
+    }
+
+
+def test_foreground_crops_accepts_augmentation_with_identical_inference_geometry():
+    plain = spatial_config(crop_config())
+    crops = spatial_config(
+        crop_config(
+            training_representation="foreground_crops_v1", random_hflip=True, scale_img=True
+        )
+    )
+    assert json.dumps(crops, sort_keys=True) == json.dumps(plain, sort_keys=True)
+    assert crops["augmentation"] == "disabled_unresolved"
+
+
+@pytest.mark.parametrize(
+    ("update", "message"),
+    [
+        ({"training_representation": "other"}, "unknown training_representation"),
+        (
+            {
+                "training_representation": "foreground_crops_v1",
+                "inplane_representation": "full_fov_resize",
+                "resize_img": True,
+            },
+            "foreground_crops_v1 requires",
+        ),
+        (
+            {"training_representation": "foreground_crops_v1", "sampling": "other"},
+            "foreground_crops_v1 requires",
+        ),
+        (
+            {"training_representation": "foreground_crops_v1", "random_hflip": "yes"},
+            "augmentation flags must be booleans",
+        ),
+    ],
+)
+def test_foreground_crops_rejections(update, message):
+    with pytest.raises(ValueError, match=message):
+        spatial_config(crop_config(**update))
+
+
+def test_inference_batch_attribute_validated_and_not_in_manifest(tmp_path):
+    write_case(tmp_path, "0", np.zeros((5, 7, 12)))
+    assert NativeSlabDataset([str(tmp_path)], config()).inference_batch == 4
+    ds = NativeSlabDataset([str(tmp_path)], {**config(), "inference_batch": 3})
+    assert ds.inference_batch == 3
+    assert "inference_batch" not in json.dumps(ds.manifest()["geometry"])
+    assert set(ds.manifest()) == {"version", "geometry", "detect_tumors", "cases", "samples"}
+    for bad in (0, -1, True, 2.0):
+        with pytest.raises(ValueError, match="inference_batch"):
+            NativeSlabDataset([str(tmp_path)], {**config(), "inference_batch": bad})
+
+
 @pytest.mark.parametrize(
     ("update", "message"),
     [
@@ -173,3 +234,13 @@ def test_native_tile_audit_physical_units(unit, scale, disposition):
     image = nib.Nifti1Image(np.zeros((1, 1, 1)), np.eye(4))
     image.header.set_xyzt_units(unit)
     assert physical_units(image) == (unit, scale, disposition)
+
+
+def test_inference_batch_helper_default_and_validation():
+    from dense_unet_3d.dataset.slabs import inference_batch
+
+    assert inference_batch({}) == 4
+    assert inference_batch({"inference_batch": 3}) == 3
+    for bad in (0, -1, True, 2.0):
+        with pytest.raises(ValueError, match="inference_batch must be a positive integer"):
+            inference_batch({"inference_batch": bad})

@@ -197,6 +197,9 @@ state and cumulative timing are restored. Data iteration restarts at the epoch
 boundary with the saved RNG state. Supported exact ordering uses zero-worker
 standard DataLoaders/default collation with TensorDataset, LiTS dataset or Subset
 and supported sequential/random samplers; unsupported loader types are refused.
+Training loaders over `NativeSlabDataset` or `ForegroundCropDataset` may use
+workers; with workers, continuation is epoch-exact rather than bitwise (see the
+paper-faithful run below).
 Generator sharing and the ordered parameters of repository preprocessing
 transforms (including `torchvision.Compose` pipelines) belong to that identity.
 Custom transform callables or extra transform state are refused because their
@@ -278,13 +281,14 @@ by a software test or diagnostic result.
 
 The [gate ledger](research/2026-09-30-reconstruction-implementation.md) supersedes
 historical fidelity assumptions. Reference configuration is deliberately
-unlaunchable; only the explicit bounded diagnostic config may use the managed
-training entry point. Unmanaged `train()`/`run_phase_a()`/`run_phase_b()` reject
+unlaunchable; the managed training entry point accepts only the bounded
+diagnostic config and the labelled `mode: training` run below. Unmanaged `train()`/`run_phase_a()`/`run_phase_b()` reject
 reconstruction configs because they cannot enforce that allocation contract.
 
 `native_slabs` keeps all native depth slices and maps H/W on the shared half-pixel
 grid. Padding target `-100` is excluded from voxel-mean CE. Augmentation is
-explicitly disabled pending its research gate. The all-case component census
+disabled for `native_tiles_v1`; only `foreground_crops_v1` training (below)
+applies the paper's scale/mirror. The all-case component census
 rejects the selected full-FOV resize for long training; see the ledger for the
 negative evidence and native tile follow-up. Both phases preserve labels 0/1/2.
 
@@ -342,3 +346,45 @@ The inspected package pins are in
 eval-mode readiness remains inconclusive and its acceptance criterion was unmet; the selected mode is a diagnostic candidate, not a
 numerically certified production configuration. Follow [#19](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/19)
 for required isolation before another learning-readiness claim.
+
+### Paper-faithful run (2026-10-21)
+
+`configs/reconstruction-run.yaml` is the launchable `mode: training` protocol;
+its fidelity labels are in the
+[run ledger](research/2026-10-21-paper-faithful-run.md). One step is one pass
+over the training cases, so an epoch is 10 passes (505 updates at 101 cases,
+batch 2). `configs/reconstruction-smoke.yaml` differs only in run name,
+epochs (2 + 1), validation cadence and budget. Unlike the execution reference
+above, `mode: training` runs with TF32 enabled and deterministic algorithms
+off; cuDNN benchmark stays off because its algorithm search exhausts the 16 GiB
+card and spills into shared memory, and validation forwards 4 tiles per batch
+(`dataset.inference_batch: 4`, the fastest batch that stays on the card).
+Diagnostic and reference modes keep the strict FP32 reference. GPU runs need separate owner authorization.
+
+```bash
+# 1. Split (CPU): 101 train / 25 validation (cases 48-52 excluded for their
+#    identity-affine segmentation headers), plus symlink trees for the config.
+python scripts/make_split_manifest.py --seed 20261021 --validation-fraction 0.2 \
+  --output docs/research/2026-10-21-split-manifest.json \
+  --link-root data/splits/2026-10-21 <LiTS batch dirs...>
+# 2. Preflight, then the bounded smoke; project s/sample to the full budget.
+dense-unet-3d preflight --config configs/reconstruction-run.yaml --full-decode
+dense-unet-3d train --config configs/reconstruction-smoke.yaml --wall-seconds 5400
+# 3. Day one: the invocation limit ends in a safe stop at an epoch boundary.
+dense-unet-3d train --config configs/reconstruction-run.yaml \
+  --wall-seconds 86400 --budget-seconds 172800
+# Optional earlier safe stop, from another terminal. Stop lands at an epoch
+# boundary; one epoch plus a validation can take ~20 min, so wait long enough.
+dense-unet-3d stop --run-dir models/paper-faithful-20261021 --wait-seconds 1500
+# Day two: an ordinary resume; the persisted 48 h budget carries over.
+dense-unet-3d resume --config configs/reconstruction-run.yaml --wall-seconds 86400
+```
+
+Resume uses the original configuration and run directory. `--recover` is only
+for a failed or lost attempt (see
+[Resume and crash/reboot recovery](#resume-and-crashreboot-recovery)), and the
+run's `runtime.max_retries: 0` grants no retry allowance. With
+`num_workers > 0`, continuation is epoch-exact, not bitwise: the sampler
+generator is restored at the epoch boundary, so the crop parameters replay
+exactly, but worker scheduling and floating-point reduction order may differ.
+Compare scheduler state, history and best score, not weights.

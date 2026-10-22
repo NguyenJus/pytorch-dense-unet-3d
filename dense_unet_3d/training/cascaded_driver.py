@@ -57,7 +57,11 @@ from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dense_unet_3d.training.experiment import checkpoint_model_metadata, experiment_metadata
+from dense_unet_3d.training.experiment import (
+    _execution_settings,
+    checkpoint_model_metadata,
+    experiment_metadata,
+)
 from dense_unet_3d.training.loss import IGNORE_INDEX, get_criterion
 from dense_unet_3d.training.train import (
     get_optimizer,
@@ -258,6 +262,9 @@ def _run_epoch(
     # rebuild it per step inside the loop.
     criterion = get_criterion(config, device=device)
 
+    execution = config.get("execution")
+    autocast_mode = "none" if execution is None else _execution_settings(execution)["autocast"]
+
     if diagnostics is not None:
         diagnostics.clear()
         diagnostics.update(
@@ -300,8 +307,13 @@ def _run_epoch(
         volume, segmentation = unpack_training_batch(batch, device)
 
         optimizer.zero_grad()
-        logits = model(volume)
-        loss = criterion(logits, segmentation)
+        # Autocast covers only forward + loss; backward, step and the
+        # finiteness checks stay outside it.
+        with torch.autocast(
+            device_type=device.type, dtype=torch.bfloat16, enabled=autocast_mode == "bf16"
+        ):
+            logits = model(volume)
+            loss = criterion(logits, segmentation)
         if not torch.isfinite(loss):
             raise FloatingPointError("Nonfinite training loss")
         loss.backward()
@@ -324,7 +336,7 @@ def _run_epoch(
             diagnostics["sampled_parameter_count"] = parameter_limit - remaining
             with torch.no_grad():
                 per_voxel = nn.functional.cross_entropy(
-                    logits.detach(),
+                    logits.detach().float(),
                     segmentation,
                     weight=getattr(criterion, "weight", None),
                     ignore_index=IGNORE_INDEX,

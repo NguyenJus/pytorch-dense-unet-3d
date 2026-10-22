@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 import torch
@@ -13,6 +14,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from dense_unet_3d import cli
 from dense_unet_3d.evaluation.evaluate import EvaluationInterrupted, evaluate
+from dense_unet_3d.training.experiment import REQUIRED_FIDELITY_KEYS, validate_experiment
 from dense_unet_3d.training.runtime import RunSession
 
 
@@ -199,6 +201,125 @@ def test_bounded_eval_rejects_nonfinite_logits():
         model.weight.fill_(float("nan"))
     with pytest.raises(FloatingPointError, match="Nonfinite"):
         evaluate(model, torch.device("cpu"), loader)
+
+
+CONFIGS = Path(__file__).resolve().parents[1] / "configs"
+
+
+def launch_config(tmp_path, name="reconstruction-run.yaml", train_cases=105):
+    """A tmp copy of a launch config pointing at a tmp synthetic split manifest."""
+    config = yaml.safe_load((CONFIGS / name).read_text())
+    manifest = tmp_path / "split-manifest.json"
+    ids = [str(i) for i in range(train_cases + 26)]
+    manifest.write_text(
+        json.dumps({"case_ids": {"train": ids[:train_cases], "validation": ids[train_cases:]}})
+    )
+    config["experiment"]["split_manifest"] = str(manifest)
+    config["pathing"]["model_save_dir"] = str(tmp_path / "models")
+    path = tmp_path / name
+    path.write_text(yaml.safe_dump(config))
+    return path
+
+
+@pytest.mark.parametrize("name", ["reconstruction-run.yaml", "reconstruction-smoke.yaml"])
+def test_launch_configs_pass_the_training_gate(name):
+    config = yaml.safe_load((CONFIGS / name).read_text())
+    validate_experiment(config)
+    assert config["experiment"]["mode"] == "training"
+    assert set(REQUIRED_FIDELITY_KEYS) <= set(config["experiment"]["fidelity"])
+
+
+def test_smoke_config_differs_from_run_only_in_scale():
+    run, smoke = (
+        yaml.safe_load((CONFIGS / name).read_text())
+        for name in ("reconstruction-run.yaml", "reconstruction-smoke.yaml")
+    )
+    assert smoke["pathing"].pop("run_name") == "smoke-20261021"
+    assert run["pathing"].pop("run_name") == "paper-faithful-20261021"
+    for section, key, value in (
+        ("training", "phase_a_epochs", 2),
+        ("training", "phase_b_epochs", 1),
+        ("runtime", "validation_every", 1),
+        ("runtime", "budget_seconds", 5400),
+    ):
+        assert smoke[section].pop(key) == value
+        run[section].pop(key)
+    assert smoke == run
+
+
+def test_run_config_dry_run_prints_pass_schedule_and_fidelity(tmp_path, monkeypatch, capsys):
+    from dense_unet_3d.training import cascaded_driver
+
+    path = launch_config(tmp_path)
+    calls = []
+
+    def driver(config, model, device, train_loader, **kwargs):
+        calls.append((train_loader, kwargs))
+        return {"terminal_reason": "completed"}
+
+    monkeypatch.setattr(cascaded_driver, "run_cascaded_training", driver)
+    cli._cmd_train(args(path, "--dry-run"))
+    output = capsys.readouterr().out
+    for phase, updates in (("phase_a", 52500), ("phase_b", 52500)):
+        assert (
+            f"{phase}: 10 passes x 105 cases = 1050 samples/epoch, 525 updates/epoch, "
+            f"{updates} updates" in output
+        )
+    fidelity = yaml.safe_load(path.read_text())["experiment"]["fidelity"]
+    for key in REQUIRED_FIDELITY_KEYS:
+        assert f"Fidelity {key}: {fidelity[key]['label']}\n" in output
+    # D5: Phase B continues the Phase A loaders rather than rebuilding them.
+    ((train_loader, kwargs),) = calls
+    assert kwargs["phase_b_train_loader"] is train_loader
+    assert kwargs["phase_b_val_loader"] is kwargs["val_loader"]
+
+
+def test_smoke_config_dry_run_completes(tmp_path):
+    path = launch_config(tmp_path, "reconstruction-smoke.yaml")
+    cli._cmd_train(args(path, "--dry-run"))
+    state = json.loads((tmp_path / "models" / "smoke-20261021" / "runtime.json").read_text())
+    assert state["terminal_reason"] == "completed"
+
+
+@pytest.mark.parametrize("batches", [525, 524])
+def test_real_run_checks_loader_length_against_schedule(tmp_path, monkeypatch, batches):
+    from dense_unet_3d.dataset import prepare_dataset
+    from dense_unet_3d.model import config as model_config
+    from dense_unet_3d.training import cascaded_driver, experiment
+
+    path = launch_config(tmp_path)
+    built = []
+
+    def loader(config, train, **kwargs):
+        size = 2 * batches if train else 1
+        built.append(DataLoader(TensorDataset(torch.zeros(size)), batch_size=2))
+        return built[-1]
+
+    calls = []
+
+    def driver(config, model, device, train_loader, **kwargs):
+        calls.append((train_loader, kwargs))
+        return {"terminal_reason": "completed"}
+
+    monkeypatch.setattr(prepare_dataset, "discover_pairs", lambda *_: [("v", "s")] * 26)
+    monkeypatch.setattr(
+        prepare_dataset, "preflight_config", lambda *a, **kw: {"train": 105, "validation": 26}
+    )
+    monkeypatch.setattr(prepare_dataset, "prepare_dataloader", loader)
+    monkeypatch.setattr(model_config, "build_model", lambda *_: torch.nn.Conv3d(1, 3, 1))
+    monkeypatch.setattr(experiment, "configure_execution", lambda *_: None)
+    monkeypatch.setattr(cli, "_device_from_config", lambda *_: torch.device("cpu"))
+    monkeypatch.setattr(cascaded_driver, "run_cascaded_training", driver)
+    if batches != 525:
+        with pytest.raises(ValueError, match="525 updates per epoch"):
+            cli._cmd_train(args(path))
+        assert calls == []
+        return
+    cli._cmd_train(args(path))
+    assert len(built) == 2
+    ((train_loader, kwargs),) = calls
+    assert train_loader is built[0] and kwargs["phase_b_train_loader"] is built[0]
+    assert kwargs["val_loader"] is built[1] and kwargs["phase_b_val_loader"] is built[1]
 
 
 def test_cpu_cli_completed_resume_does_not_replay_updates(config_path):

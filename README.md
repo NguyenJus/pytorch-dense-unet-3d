@@ -141,24 +141,40 @@ Two explicit model identities are available:
   3,523,643 parameters, retained for historical weight evaluation.
 - `figure_skip_reconstruction_v1`: full (4,12,24,36) counts, standard decoder,
   printed bottlenecks (128,128,128,32), and resized figure-source skips,
-  64,591,723 parameters. This is a diagnostic reconstruction with unresolved
-  topology/framework assumptions, not the verified author model.
+  64,591,723 parameters. It is not the verified author model: each
+  topology/framework assumption carries an INFERRED or DEVIATION label in the
+  paper-faithful run ledger (below).
 
 The paper's 3.6M and 36.27M parameter claims conflict. The old ±15% count band
 has been removed as an acceptance test; neither graph is justified by matching
-those claims. Exact source-backed topology, epoch semantics and data retention
-remain gates. Full-FOV 224×224 resizing erases some native tumor components, so
-that representation is blocked for long training. The opt-in `native_tiles_v1`
-diagnostic implements native in-plane tiling and passes the fixed-split deterministic retention census. Learning/FOV, augmentation,
-schedule/exposure and throughput/memory evidence remain open before production
-selection.
+those claims. No author source fixes the exact topology, so the run ledger
+labels each piece LITERAL, INFERRED or DEVIATION instead of gating on it.
+Full-FOV 224×224 resizing erases some native tumor components, so that
+representation is blocked for long training. `native_tiles_v1` native in-plane
+tiling passes the fixed-split deterministic retention census and is the
+validation/inference grid of the paper-faithful run. That run settles epoch
+semantics (one step = one pass over the training cases, a labelled DEVIATION)
+and augmentation (mirror and 0.8–1.2 scaling on foreground-centred crops); its
+learning curve, throughput and memory are measured by the run itself and
+recorded in the ledger's Results section.
 
 See the [implementation and evidence ledger](docs/research/2026-09-30-reconstruction-implementation.md),
 [model manifest](docs/research/2026-09-30-model-manifest.json), and
 [historical decision record](docs/research/2026-06-21-denseunet569-architecture-decisions.md).
 `dense_unet_3d/config.yaml` and `configs/reconstruction-reference.yaml` preserve
-the literal schedule but refuse launch. `configs/reconstruction-diagnostic.yaml` is a separate bounded
-engineering protocol. Historical examples below retain their original contract.
+the literal 1000-epoch, step = minibatch schedule but refuse launch.
+`configs/reconstruction-diagnostic.yaml` is a separate bounded engineering
+protocol. Historical examples below retain their original contract.
+
+The paper-faithful run is launchable: `configs/reconstruction-run.yaml` (full
+run) and `configs/reconstruction-smoke.yaml` (bounded smoke) train with
+foreground-centred crops, one step = one pass over the training cases, and a
+101/25 split built by `scripts/make_split_manifest.py` (cases 48-52 excluded for
+broken segmentation headers). Every design decision
+carries a LITERAL / INFERRED / DEVIATION label in the
+[paper-faithful run ledger](docs/research/2026-10-21-paper-faithful-run.md),
+which also holds the expected update counts and, after the run, its results.
+Launch and resume steps are in [training operations](docs/training-operations.md).
 
 ---
 
@@ -173,6 +189,9 @@ The paper's results (liver Dice-per-case 96.2 / Dice-global 96.7;
 tumor Dice-per-case 69.6 / Dice-global 80.7) are cited here only as the
 published reference — clearly attributed to Alalwan et al. — and are not
 measurements made by this repository.
+Results of the paper-faithful run are recorded only in the Results section of
+`docs/research/2026-10-21-paper-faithful-run.md`; until that section is filled, no
+result of that run exists.
 The local validation set is a practical proxy for tracking training progress.
 
 The audit corrected spatial-axis handling and mask interpolation during
@@ -219,9 +238,9 @@ These phases are documented as future directions — they are **not built** in t
 current release.
 
 - **Phase 2 (owner improvements):**
-  - Resolve the diagnostic reconstruction's remaining evidence and learning gates.
-  - Validate learning/FOV, augmentation, schedule/exposure and throughput/memory
-    for the implemented opt-in native in-plane tiles before production selection.
+  - Run the paper-faithful training run (`configs/reconstruction-run.yaml`) and
+    record its validation curve in the ledger; the up1 self-concat variant is a
+    named follow-up.
   - Separately named Dice / Tversky loss or AdamW/cosine experiments; these are
     not corrections to the paper recipe.
 - **Phase 3 (speculative):** open-weight finetuning from a published
