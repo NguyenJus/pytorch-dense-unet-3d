@@ -148,7 +148,7 @@ The `experiment.fidelity` block of `configs/reconstruction-run.yaml` (and the sm
 | `phase_transfer_reset` | INFERRED | Section 3.2 'optimal weights obtained in the initial phase are used as a base' is LITERAL for the weights; a fresh optimizer and scheduler (LR back to 0.01) is inferred. |
 | `phase_b_epochs` | DEVIATION | Section 3.2 states 1000 epochs x 10 steps; with halving every 10 epochs the literal 1000 epochs spend ~800 epochs below LR 1e-8, and Fig. 2 plots the 2nd training phase over 0-100 epochs, so Phase B runs 100 epochs. |
 | `best_selection` | INFERRED | 'Optimal weights' is undefined; best = mean of liver and tumor per-case Dice on the validation split (foreground_selection_score), evaluated every 10 epochs and at each phase-final epoch. |
-| `execution` | DEVIATION | No paper claim (engineering): FP32 weights/activations with TF32 matmul/conv enabled, cuDNN benchmark off (its algorithm search exhausts the 16 GiB card and spills into shared memory) and deterministic off, bf16 autocast opt-in only; departs from the paper-era FP32 TF/Keras execution and is recorded as engineering, not fidelity. |
+| `execution` | DEVIATION | No paper claim (engineering): FP32 weights/activations with TF32 matmul/conv enabled, cuDNN benchmark off (its algorithm search exhausts the 16 GiB card and spills into shared memory), which makes cuDNN select deterministic algorithms (`torch.backends.cudnn.deterministic = not cudnn_benchmark`), while `torch.use_deterministic_algorithms` stays off, bf16 autocast opt-in only; departs from the paper-era FP32 TF/Keras execution and is recorded as engineering, not fidelity. |
 
 ## Results
 

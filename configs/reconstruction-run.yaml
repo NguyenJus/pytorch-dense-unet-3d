@@ -135,7 +135,7 @@ experiment:
       evidence: "'Optimal weights' is undefined; best = mean of liver and tumor per-case Dice on the validation split (foreground_selection_score), evaluated every 10 epochs and at each phase-final epoch."
     execution:
       label: DEVIATION
-      evidence: "No paper claim (engineering): FP32 weights/activations with TF32 matmul/conv enabled, cuDNN benchmark off (its algorithm search exhausts the 16 GiB card and spills into shared memory) and deterministic off, bf16 autocast opt-in only; departs from the paper-era FP32 TF/Keras execution and is recorded as engineering, not fidelity."
+      evidence: "No paper claim (engineering): FP32 weights/activations with TF32 matmul/conv enabled, cuDNN benchmark off (its algorithm search exhausts the 16 GiB card and spills into shared memory), which makes cuDNN select deterministic algorithms (`torch.backends.cudnn.deterministic = not cudnn_benchmark`), while `torch.use_deterministic_algorithms` stays off, bf16 autocast opt-in only; departs from the paper-era FP32 TF/Keras execution and is recorded as engineering, not fidelity."
 model:
   name: figure_skip_reconstruction_v1
   schema_version: 1
