@@ -45,6 +45,7 @@ The ``last`` and ``best`` checkpoint file names under each phase sub-dir::
 
 from __future__ import annotations
 
+import math
 import os
 import warnings
 from collections.abc import Iterable, Iterator
@@ -54,6 +55,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch import optim
+from torch.nn.utils import get_total_norm
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -229,17 +231,14 @@ def load_checkpoint(
 # ---------------------------------------------------------------------------
 
 
-def _per_tensor_norms(tensors: list[torch.Tensor]) -> torch.Tensor:
-    """Stack each tensor's L2 norm into one device vector without a host sync.
+def _max_abs(tensors: list[torch.Tensor]) -> torch.Tensor:
+    """Largest absolute value over all tensors, reduced on the device.
 
-    A non-finite element gives a non-finite norm, so one ``isfinite().all()``
-    over the result checks every tensor with a single device sync.  A finite
-    tensor whose norm exceeds ~1.8e19 (its FP32 sum of squares overflows) would
-    also read as non-finite; that is unreachable at this model's scale.
+    The max-abs norm is finite exactly when every element is finite (it cannot
+    overflow, unlike an L2 norm), so one host read of it checks all tensors
+    with a single device sync instead of one per tensor (#26).
     """
-    if not tensors:
-        return torch.zeros(0)
-    return torch.stack(torch._foreach_norm(tensors))
+    return get_total_norm(tensors, norm_type=math.inf)
 
 
 def _run_epoch(
@@ -331,14 +330,18 @@ def _run_epoch(
             raise FloatingPointError("Nonfinite training loss")
         loss.backward()
         # One device sync per check, not one per parameter tensor (#26).
-        grad_norms = _per_tensor_norms(
-            [p.grad.detach() for p in model.parameters() if p.grad is not None]
-        )
-        if not torch.isfinite(grad_norms).all():
+        grads = [p.grad for p in model.parameters() if p.grad is not None]
+        grad_max = _max_abs(grads)
+        if diagnostics is None:
+            grad_max_value = grad_max.item()
+        else:
+            grad_max_value, grad_l2 = torch.stack(
+                [grad_max, get_total_norm(grads, norm_type=2.0)]
+            ).tolist()
+        if not math.isfinite(grad_max_value):
             raise FloatingPointError("Nonfinite training gradients")
         sampled: list[tuple[torch.Tensor, torch.Tensor]] = []
         if diagnostics is not None:
-            grad_l2 = float(torch.linalg.vector_norm(grad_norms).item())
             diagnostics["gradient_l2_max"] = max(diagnostics["gradient_l2_max"], grad_l2)
             remaining = parameter_limit
             for p in model.parameters():
@@ -383,26 +386,30 @@ def _run_epoch(
                     diagnostics["tumor_positive_case_ids_seen"] = sorted(positive_cases)
                     diagnostics["unique_cases_seen"] = len(seen_cases)
                     diagnostics["tumor_positive_cases_seen"] = len(positive_cases)
+                # Masked sums via ``where`` keep the shapes static (no implicit
+                # sync); the nine per-class values then cross to the host once.
+                per_class: list[torch.Tensor] = []
                 for c in range(3):
                     label_mask = segmentation == c
-                    diagnostics["class_voxel_counts"][c] += int(label_mask.sum().item())
-                    diagnostics["predicted_class_voxel_counts"][c] += int(
-                        ((prediction == c) & valid).sum().item()
-                    )
-                    diagnostics["class_weighted_ce_sums"][c] += float(
-                        per_voxel[label_mask].sum().item()
-                    )
+                    per_class.append(label_mask.sum().double())
+                    per_class.append(((prediction == c) & valid).sum().double())
+                    per_class.append(torch.where(label_mask, per_voxel, 0.0).sum().double())
+                class_values = torch.stack(per_class).tolist()
+                for c in range(3):
+                    diagnostics["class_voxel_counts"][c] += int(class_values[3 * c])
+                    diagnostics["predicted_class_voxel_counts"][c] += int(class_values[3 * c + 1])
+                    diagnostics["class_weighted_ce_sums"][c] += float(class_values[3 * c + 2])
         optimizer.step()
         if diagnostics is not None:
-            update_norms = _per_tensor_norms(
-                [p.detach().reshape(-1)[: before.numel()] - before for p, before in sampled]
-            )
-            update_l2 = float(torch.linalg.vector_norm(update_norms).item())
+            update_l2 = get_total_norm(
+                [p.detach().reshape(-1)[: before.numel()] - before for p, before in sampled],
+                norm_type=2.0,
+            ).item()
             diagnostics["sampled_parameter_update_l2_max"] = max(
                 diagnostics["sampled_parameter_update_l2_max"], update_l2
             )
             diagnostics["updates"] += 1
-        if not torch.isfinite(_per_tensor_norms([p.detach() for p in model.parameters()])).all():
+        if not math.isfinite(_max_abs([p.detach() for p in model.parameters()]).item()):
             raise FloatingPointError("Nonfinite model parameters")
 
         running_loss += loss.item()

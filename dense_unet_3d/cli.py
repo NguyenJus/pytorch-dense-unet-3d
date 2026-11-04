@@ -54,10 +54,15 @@ def _load_config(config_path: str) -> dict[str, Any]:
 
 
 def _dry_run_config(config: dict[str, Any]) -> dict[str, Any]:
-    """Redirect a dry run to ``<run_name>-dry-run`` so it never consumes the real run directory."""
-    pathing = config["pathing"]
-    pathing["run_name"] = f"{pathing['run_name']}-dry-run"
-    return config
+    """Return a copy whose run name ends in ``-dry-run`` so the real run directory stays free.
+
+    A name that already carries the suffix is kept, so ``resume --dry-run`` on
+    such a config finds the same directory.
+    """
+    name = config["pathing"]["run_name"]
+    if name.endswith("-dry-run"):
+        return config
+    return {**config, "pathing": {**config["pathing"], "run_name": f"{name}-dry-run"}}
 
 
 def _device_from_config(config: dict[str, Any]) -> torch.device:

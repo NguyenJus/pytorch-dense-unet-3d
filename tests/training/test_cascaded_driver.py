@@ -1251,4 +1251,4 @@ def test_run_epoch_sync_count_is_parameter_independent(tmp_path, monkeypatch) ->
         p.numel() for p in large.parameters()
     )
     assert small_calls == large_calls, (small_calls, large_calls)
-    assert small_calls <= 40
+    assert small_calls <= 20
