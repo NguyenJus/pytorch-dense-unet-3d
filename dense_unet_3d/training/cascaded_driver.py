@@ -229,6 +229,19 @@ def load_checkpoint(
 # ---------------------------------------------------------------------------
 
 
+def _per_tensor_norms(tensors: list[torch.Tensor]) -> torch.Tensor:
+    """Stack each tensor's L2 norm into one device vector without a host sync.
+
+    A non-finite element gives a non-finite norm, so one ``isfinite().all()``
+    over the result checks every tensor with a single device sync.  A finite
+    tensor whose norm exceeds ~1.8e19 (its FP32 sum of squares overflows) would
+    also read as non-finite; that is unreachable at this model's scale.
+    """
+    if not tensors:
+        return torch.zeros(0)
+    return torch.stack(torch._foreach_norm(tensors))
+
+
 def _run_epoch(
     *,
     config: dict[str, Any],
@@ -317,19 +330,21 @@ def _run_epoch(
         if not torch.isfinite(loss):
             raise FloatingPointError("Nonfinite training loss")
         loss.backward()
-        if any(p.grad is not None and not torch.isfinite(p.grad).all() for p in model.parameters()):
+        # One device sync per check, not one per parameter tensor (#26).
+        grad_norms = _per_tensor_norms(
+            [p.grad.detach() for p in model.parameters() if p.grad is not None]
+        )
+        if not torch.isfinite(grad_norms).all():
             raise FloatingPointError("Nonfinite training gradients")
         sampled: list[tuple[torch.Tensor, torch.Tensor]] = []
         if diagnostics is not None:
-            grad_sq = sum(
-                float(torch.linalg.vector_norm(p.grad.detach()).item()) ** 2
-                for p in model.parameters()
-                if p.grad is not None
-            )
-            diagnostics["gradient_l2_max"] = max(diagnostics["gradient_l2_max"], grad_sq**0.5)
+            grad_l2 = float(torch.linalg.vector_norm(grad_norms).item())
+            diagnostics["gradient_l2_max"] = max(diagnostics["gradient_l2_max"], grad_l2)
             remaining = parameter_limit
             for p in model.parameters():
-                if p.requires_grad and remaining > 0:
+                if remaining == 0:
+                    break
+                if p.requires_grad:
                     values = p.detach().reshape(-1)[:remaining]
                     sampled.append((p, values.clone()))
                     remaining -= values.numel()
@@ -379,20 +394,15 @@ def _run_epoch(
                     )
         optimizer.step()
         if diagnostics is not None:
-            update_sq = sum(
-                float(
-                    torch.linalg.vector_norm(
-                        p.detach().reshape(-1)[: before.numel()] - before
-                    ).item()
-                )
-                ** 2
-                for p, before in sampled
+            update_norms = _per_tensor_norms(
+                [p.detach().reshape(-1)[: before.numel()] - before for p, before in sampled]
             )
+            update_l2 = float(torch.linalg.vector_norm(update_norms).item())
             diagnostics["sampled_parameter_update_l2_max"] = max(
-                diagnostics["sampled_parameter_update_l2_max"], update_sq**0.5
+                diagnostics["sampled_parameter_update_l2_max"], update_l2
             )
             diagnostics["updates"] += 1
-        if any(not torch.isfinite(p).all() for p in model.parameters()):
+        if not torch.isfinite(_per_tensor_norms([p.detach() for p in model.parameters()])).all():
             raise FloatingPointError("Nonfinite model parameters")
 
         running_loss += loss.item()
