@@ -53,6 +53,13 @@ def _load_config(config_path: str) -> dict[str, Any]:
         return yaml.safe_load(f)  # type: ignore[no-any-return]
 
 
+def _dry_run_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Redirect a dry run to ``<run_name>-dry-run`` so it never consumes the real run directory."""
+    pathing = config["pathing"]
+    pathing["run_name"] = f"{pathing['run_name']}-dry-run"
+    return config
+
+
 def _device_from_config(config: dict[str, Any]) -> torch.device:
     """Resolve the compute device from config, honouring the CPU-first rule."""
     gpu_cfg = config.get("gpu", {})
@@ -303,6 +310,8 @@ def _cmd_train(args: argparse.Namespace) -> None:
     from dense_unet_3d.training.runtime import RunSession
 
     config = _load_config(args.config)
+    if args.dry_run:
+        config = _dry_run_config(config)
     _print_training_plan(config, args)
     three_class_a = config.get("training", {}).get("phase_a_targets") == "three_class"
     resume = args.command == "resume"

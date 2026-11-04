@@ -113,6 +113,29 @@ def test_plan_and_accounting_precede_preflight_and_allocation(config_path, monke
     assert state["cumulative_seconds"] > 0
 
 
+def test_dry_run_leaves_real_run_directory_free(config_path, monkeypatch):
+    from dense_unet_3d.dataset import prepare_dataset
+    from dense_unet_3d.training import cascaded_driver
+
+    monkeypatch.setattr(
+        cascaded_driver,
+        "run_cascaded_training",
+        lambda *a, **kw: {"terminal_reason": "completed"},
+    )
+    cli._cmd_train(args(config_path, "--dry-run"))
+    assert (config_path.parent / "run-dry-run" / "runtime.json").exists()
+    assert not (config_path.parent / "run").exists()
+
+    def preflight(config, **kwargs):
+        raise ValueError("preflight sentinel")
+
+    monkeypatch.setattr(prepare_dataset, "discover_pairs", lambda *_: [("v", "s")] * 2)
+    monkeypatch.setattr(prepare_dataset, "preflight_config", preflight)
+    with pytest.raises(ValueError, match="preflight sentinel"):
+        cli._cmd_train(args(config_path, "--wall-seconds", "1"))
+    assert (config_path.parent / "run" / "runtime.json").exists()
+
+
 def test_dry_run_forces_cpu_and_preserves_global_rng(config_path, monkeypatch):
     from dense_unet_3d.training import cascaded_driver
 
@@ -131,7 +154,7 @@ def test_dry_run_forces_cpu_and_preserves_global_rng(config_path, monkeypatch):
     monkeypatch.setattr(cascaded_driver, "run_cascaded_training", driver)
     cli._cmd_train(args(config_path, "--dry-run"))
     assert devices == ["cpu"]
-    state = json.loads((config_path.parent / "run" / "runtime.json").read_text())
+    state = json.loads((config_path.parent / "run-dry-run" / "runtime.json").read_text())
     assert state["terminal_reason"] == "user stopped"
 
 
@@ -174,7 +197,7 @@ def test_final_evaluation_stop_preserves_training_completion(config_path, monkey
     assert "Training budget exhausted" in capsys.readouterr().out
     records = [
         json.loads(line)
-        for line in (config_path.parent / "run" / "events.jsonl").read_text().splitlines()
+        for line in (config_path.parent / "run-dry-run" / "events.jsonl").read_text().splitlines()
     ]
     assert any(row.get("training_completed") for row in records)
     assert any(row["event"] == "final_evaluation_stopped" for row in records)
@@ -277,7 +300,9 @@ def test_run_config_dry_run_prints_pass_schedule_and_fidelity(tmp_path, monkeypa
 def test_smoke_config_dry_run_completes(tmp_path):
     path = launch_config(tmp_path, "reconstruction-smoke.yaml")
     cli._cmd_train(args(path, "--dry-run"))
-    state = json.loads((tmp_path / "models" / "smoke-20261021" / "runtime.json").read_text())
+    state = json.loads(
+        (tmp_path / "models" / "smoke-20261021-dry-run" / "runtime.json").read_text()
+    )
     assert state["terminal_reason"] == "completed"
 
 
@@ -334,7 +359,7 @@ def test_cpu_cli_completed_resume_does_not_replay_updates(config_path):
     )
     config_path.write_text(yaml.safe_dump(config))
     cli._cmd_train(args(config_path, "--dry-run", "--budget-seconds", "300"))
-    run_dir = config_path.parent / "run"
+    run_dir = config_path.parent / "run-dry-run"
     before = torch.load(run_dir / "recovery.pt", map_location="cpu", weights_only=False)
     resume_args = cli._build_parser().parse_args(
         ["resume", "--config", str(config_path), "--dry-run"]
