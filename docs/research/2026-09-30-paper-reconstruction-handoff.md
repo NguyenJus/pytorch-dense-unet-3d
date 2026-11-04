@@ -1,6 +1,6 @@
 # Alalwan reconstruction implementation handoff
 
-Implementation state and R1–R9 dispositions: [reconstruction implementation ledger](2026-09-30-reconstruction-implementation.md). The original spec below is preserved; open gates remain binding.
+Implementation state and R1–R9 dispositions: [reconstruction implementation ledger](2026-09-30-reconstruction-implementation.md). The original spec below is preserved; open gates remain binding (dispositioned 2026-11-03, see [2026-10-21-paper-faithful-run.md §5](2026-10-21-paper-faithful-run.md#5-issue-dispositions-2026-11-03)).
 
 Implement a defensible reconstruction of Alalwan's liver and tumor segmentation
 architecture and training recipe. Paper fidelity is the primary objective;
