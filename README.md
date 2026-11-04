@@ -201,10 +201,12 @@ The September 30 audit additionally corrects image/mask resize coordinate grids;
 managed checkpoints made with the older grid are refused on exact resume.
 Whole-volume compression to 12 slices can still erase lesions. The
 `historical_reduced` reference folds tumor into liver during Phase A, an
-implementation choice not specified by the paper's two-stage training description;
-the diagnostic reconstruction keeps all three classes in both phases. These remain
-barriers to claiming reproduced results; see the
-[training run audit](docs/research/2026-09-30-training-run-audit.md).
+implementation choice not specified by the paper's two-stage training description
+(see the [training run audit](docs/research/2026-09-30-training-run-audit.md)).
+The historical reduced and diagnostic configs are superseded by
+`configs/reconstruction-run.yaml`, which keeps all three classes in both phases;
+its [fidelity ledger](docs/research/2026-10-21-paper-faithful-run.md) records every
+deviation from the paper. Its results are TBD until the run completes.
 
 ---
 

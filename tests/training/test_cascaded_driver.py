@@ -1054,7 +1054,8 @@ def test_managed_three_class_dictionary_training(tmp_path) -> None:
         assert torch.equal(result["phase_b_loaded_phase_a_state_dict"][key], value)
 
 
-def test_nonfinite_gradients_fail_before_optimizer_update(tmp_path) -> None:
+@pytest.mark.parametrize("diagnostics", [None, {}])
+def test_nonfinite_gradients_fail_before_optimizer_update(tmp_path, diagnostics) -> None:
     model = _TinyModel()
     cfg = _base_cfg(str(tmp_path), use_scheduler=False)
     handle = model.conv.weight.register_hook(
@@ -1070,11 +1071,38 @@ def test_nonfinite_gradients_fail_before_optimizer_update(tmp_path) -> None:
                 loader=_loader(),
                 optimizer=cascaded_mod.get_optimizer(model, cfg),
                 steps_per_epoch=1,
+                diagnostics=diagnostics,
             )
     finally:
         handle.remove()
     for key, value in model.state_dict().items():
         assert torch.equal(value, before[key])
+
+
+@pytest.mark.parametrize("diagnostics", [None, {}])
+def test_nonfinite_parameters_after_step_raise(tmp_path, diagnostics) -> None:
+    model = _TinyModel()
+    cfg = _base_cfg(str(tmp_path), use_scheduler=False)
+    optimizer = cascaded_mod.get_optimizer(model, cfg)
+    original_step = optimizer.step
+
+    def poisoned_step(*args, **kwargs):
+        result = original_step(*args, **kwargs)
+        with torch.no_grad():
+            model.conv.bias[0] = float("nan")
+        return result
+
+    optimizer.step = poisoned_step  # type: ignore[method-assign]
+    with pytest.raises(FloatingPointError, match="Nonfinite model parameters"):
+        _run_epoch(
+            config=cfg,
+            model=model,
+            device=torch.device("cpu"),
+            loader=_loader(),
+            optimizer=optimizer,
+            steps_per_epoch=1,
+            diagnostics=diagnostics,
+        )
 
 
 def test_liver_only_native_slabs_rejected() -> None:
@@ -1165,3 +1193,62 @@ def test_invalid_execution_block_rejected_by_shared_validation(tmp_path) -> None
     with pytest.raises(ValueError, match="Unsupported execution settings"):
         _one_step(tmp_path, {"tf32": "yes"}, model)
     assert model.seen == []
+
+
+_HOST_SYNC_METHODS = ("item", "__bool__", "__float__", "__int__", "tolist")
+
+
+def _count_host_syncs_in_one_step(
+    tmp_path, model: nn.Module, monkeypatch: pytest.MonkeyPatch
+) -> tuple[int, dict]:
+    """Count tensor-to-host conversions during one diagnosed ``_run_epoch`` step."""
+    cfg = _base_cfg(str(tmp_path), use_scheduler=False)
+    optimizer = cascaded_mod.get_optimizer(model, cfg)
+    loader = _loader(n=2)
+    diagnostics: dict = {}
+    calls = 0
+
+    def counting(original):
+        def wrapper(self, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return original(self, *args, **kwargs)
+
+        return wrapper
+
+    with monkeypatch.context() as patch:
+        for name in _HOST_SYNC_METHODS:
+            patch.setattr(torch.Tensor, name, counting(getattr(torch.Tensor, name)))
+        _run_epoch(
+            config=cfg,
+            model=model,
+            device=torch.device("cpu"),
+            loader=loader,
+            optimizer=optimizer,
+            steps_per_epoch=1,
+            diagnostics=diagnostics,
+        )
+    return calls, diagnostics
+
+
+def test_run_epoch_sync_count_is_parameter_independent(tmp_path, monkeypatch) -> None:
+    torch.manual_seed(0)
+    small = _TinyModel()
+    large = nn.Sequential(nn.Conv3d(1, 3, 1), *(nn.Conv3d(3, 3, 1) for _ in range(10)))
+    small_tensors = len(list(small.parameters()))
+    large_tensors = len(list(large.parameters()))
+    assert large_tensors >= 10 * small_tensors
+    # Every tensor is sampled, so the update-norm reduction spans all of them.
+    assert sum(p.numel() for p in large.parameters()) < 4096
+
+    small_calls, small_diagnostics = _count_host_syncs_in_one_step(tmp_path, small, monkeypatch)
+    large_calls, large_diagnostics = _count_host_syncs_in_one_step(tmp_path, large, monkeypatch)
+
+    assert small_diagnostics["sampled_parameter_count"] == sum(
+        p.numel() for p in small.parameters()
+    )
+    assert large_diagnostics["sampled_parameter_count"] == sum(
+        p.numel() for p in large.parameters()
+    )
+    assert small_calls == large_calls, (small_calls, large_calls)
+    assert small_calls <= 20

@@ -54,7 +54,8 @@ no verified author implementation; absence is explicitly unresolved, not proof.
   batch1, no accumulation, finite 900-second invocation/cumulative allocation.
   This is a short engineering protocol, not replacement paper epoch semantics.
 - [Split manifest](2026-09-30-split-manifest.json): original 28 training and 98
-  validation IDs, enforced before dataset construction. The native index contains
+  validation IDs (126 of 131 cases; 48-52 excluded, see the note below), enforced
+  before dataset construction. The native index contains
   1,257 training and 3,588 validation slabs for full-FOV resize. The opt-in
   `configs/reconstruction-native-tiles-diagnostic.yaml` implements native tiles:
   11,313 training and 32,292 validation samples (9× the slab counts), with
@@ -127,7 +128,9 @@ landmark. Subsequent opt-in `native_tiles_v1` integration and the
 126 cases, 869 components, zero erasures, complete voxel coverage and exact
 identity reassembly. This closes the deterministic retention requirement for
 that diagnostic representation; FOV/learning, augmentation, schedule/exposure
-and throughput/memory remain open in [#18](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/18).
+and throughput/memory remain open in [#18](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/18) (dispositioned 2026-11-03, see [2026-10-21-paper-faithful-run.md §5](2026-10-21-paper-faithful-run.md#5-issue-dispositions-2026-11-03)).
+
+> **Note on cases 48-52.** LiTS has 131 labeled cases; cases 48-52 are absent from the 28/98/126 counts because their `segmentation-N.nii` headers carry an identity affine while the volumes carry the scanner geometry, so `LITSDataset._validate_spatial_pair` rejects the pair. The 2026-10-21 manifest records them under `excluded` with reasons and SHA-256 hashes (`2026-10-21-split-manifest.json`).
 
 GPU work consumed **90 optimizer updates and 301.525 seconds** of the declared
 100-update/900-second allocation, with no long launch. Warm forward peak allocated
@@ -151,18 +154,14 @@ allocation. Exact source for both update-bearing attempts and their config is in
 the tracked [artifact archive](artifacts/README.md); the zero-update and
 reporting-only source is retained by hash only, and large raw
 tensors/checkpoints remain local-only.
-This limitation, failed replay, and inconclusive evaluation readiness are tracked in [#19](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/19).
+This limitation, failed replay, and inconclusive evaluation readiness are tracked in [#19](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/19) (dispositioned 2026-11-03, see [2026-10-21-paper-faithful-run.md §5](2026-10-21-paper-faithful-run.md#5-issue-dispositions-2026-11-03)).
 
-Readiness remains blocked by [#16](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/16),
+The readiness gates [#16](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/16),
 [#17](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/17),
-[#18](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/18), and
-[#19](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/19). These are
-required tracked follow-ups, not an implicit authorization to start long training.
-
-
-Next action: use issues #16–#19 to resolve the exact remaining gates. The highest
-value engineering work is numerical repeatability/fixed-weight normalization
-isolation, plus native-tile learning/FOV, augmentation, schedule/exposure and
-throughput/memory evidence, with independent checks. Do not start a long run or
-relabel an alternative optimizer/schedule as paper reconstruction. Code remains in the isolated task worktree for review;
-no PR merge or training continuation was performed.
+[#18](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/18) and
+[#19](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/19) were
+dispositioned on 2026-11-03 in
+[2026-10-21-paper-faithful-run.md §5](2026-10-21-paper-faithful-run.md#5-issue-dispositions-2026-11-03).
+The launchable successor to this diagnostic reconstruction is
+`configs/reconstruction-run.yaml`, whose ledger labels every deviation; its launch
+waits only on the owner's go-ahead.

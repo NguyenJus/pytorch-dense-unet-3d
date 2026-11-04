@@ -217,6 +217,8 @@ and update semantics must be re-audited rather than silently keeping a claimed
 equivalent epoch. CPU buffering grows from model-resolution to native-resolution
 probability planes; inference/training memory and throughput need measurement.
 
+> **Note on cases 48-52.** LiTS has 131 labeled cases; cases 48-52 are absent from the 28/98/126 counts because their `segmentation-N.nii` headers carry an identity affine while the volumes carry the scanner geometry, so `LITSDataset._validate_spatial_pair` rejects the pair. The 2026-10-21 manifest records them under `excluded` with reasons and SHA-256 hashes (`2026-10-21-split-manifest.json`).
+
 `scripts/audit_native_tiling.py` executed six synthetic cases: singleton,
 sub-window rectangular, exact window, nonmultiple dimensions, 512×512×25, and
 301×117×17. Unique voxel IDs reassembled exactly after weighted overlap, with
@@ -257,7 +259,7 @@ Final real census: 28 train / 98 validation cases; 4/138 training and 18/731
 validation components erased, with no omitted depth slices or boundary-core
 failures. Full-FOV resize is refuted for long training. See the
 [tracked summary](2026-09-30-retention-census-summary.json) and
-[required spatial follow-up #18](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/18).
+[required spatial follow-up #18](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/18) (dispositioned 2026-11-03, see [2026-10-21-paper-faithful-run.md §5](2026-10-21-paper-faithful-run.md#5-issue-dispositions-2026-11-03)).
 The header audit found 106 sources declaring mm and 20 with unknown units; absolute
 mm3 for unknown-unit sources is an explicit provisional LiTS inference, while
 per-case retention ratios and erasure are unit-independent. Future census runs
@@ -336,7 +338,7 @@ padding, oblique affine landmarks, probability-conflict overlap, missing coverag
 interruption, complete-case metrics, checkpoint mismatches, and zero padded loss
 gradients. Learning/FOV effects, context across tile boundaries, throughput/memory
 and schedule exposure remain unmeasured. Passing deterministic retention opens
-investigation of those gates and does not close #18 or select production defaults.
+investigation of those gates and does not close #18 or select production defaults (dispositioned 2026-11-03, see [2026-10-21-paper-faithful-run.md §5](2026-10-21-paper-faithful-run.md#5-issue-dispositions-2026-11-03)).
 
 ### Completed native real-label census
 
@@ -350,6 +352,8 @@ source paths, per-case grids, component arrays or patient imagery.
 | Train | 28 | 138 | 0 | 0 | 14,918 / 14,918 | 11,313 |
 | Validation | 98 | 731 | 0 | 0 | 42,518 / 42,518 | 32,292 |
 | Total | 126 | 869 | 0 | 0 | 57,436 / 57,436 | 43,605 |
+
+> **Note on cases 48-52.** LiTS has 131 labeled cases; cases 48-52 are absent from the 28/98/126 counts because their `segmentation-N.nii` headers carry an identity affine while the volumes carry the scanner geometry, so `LITSDataset._validate_spatial_pair` rejects the pair. The 2026-10-21 manifest records them under `excluded` with reasons and SHA-256 hashes (`2026-10-21-split-manifest.json`).
 
 Every production-extracted native component identity reassembled exactly, with
 positive coverage for every source voxel and no invalid padding contribution.
@@ -419,4 +423,4 @@ The full real-label deterministic retention result supports this named native
 representation's zero-erasure geometry requirement, replacing the refuted resize
 candidate for further investigation. It does **not** establish useful predictions,
 learning/FOV adequacy, paper augmentation fidelity, or measured runtime/memory.
-Those gates remain open; #18 is not closed and production defaults remain gated.
+Those gates remain open; #18 is not closed and production defaults remain gated (dispositioned 2026-11-03, see [2026-10-21-paper-faithful-run.md §5](2026-10-21-paper-faithful-run.md#5-issue-dispositions-2026-11-03)).

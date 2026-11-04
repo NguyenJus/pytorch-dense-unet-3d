@@ -23,8 +23,9 @@ nohup dense-unet-3d train --config config.yaml \
 ```
 
 `--dry-run` uses small synthetic data and a tiny model on CPU regardless of GPU
-configuration. It still creates a real durable run directory; use an isolated
-configuration/run name rather than the stopped experiment's path.
+configuration. It writes to `<model_save_dir>/<run_name>-dry-run/`, so it is safe
+before the real launch of the same config, and `resume --dry-run` resumes that
+directory.
 
 The CLI prints resolved epochs, updates, validation cadence/pass counts and stop
 conditions before preflight/model/device allocation. It prints the effective
@@ -268,9 +269,12 @@ are reported with the change; test names are pointers, not claims of GPU executi
 | Bounded final eval withholds partial results, records completed training; nonfinite logits | `test_final_evaluation_stop_preserves_training_completion`, `test_bounded_eval_withholds_incomplete_metrics`, `test_bounded_eval_rejects_nonfinite_logits` |
 | Existing evaluation/predict/CLI behavior | `tests/test_cli.py`, `tests/evaluation/test_evaluate.py` |
 
-Remaining operational prerequisite: a separately authorized, bounded real GPU
-smoke showing checkpoint-and-stop, process exit, resume and completion within the
-selected allocation before any multi-day launch. CPU tests do not validate GPU
+The bounded real GPU smoke (checkpoint-and-stop, process exit, resume and
+completion within its allocation) ran on 2026-10-21; see the
+[ledger Results](research/2026-10-21-paper-faithful-run.md#results). Issues
+#16-#19 were dispositioned on 2026-11-03 in
+[ledger §5](research/2026-10-21-paper-faithful-run.md#5-issue-dispositions-2026-11-03);
+the launch prerequisite is the owner's go-ahead. CPU tests do not validate GPU
 kernel behavior, real-data throughput, physical host reboot or real disk-full
 hardware conditions. The original runtime change did not include GPU execution. The subsequent
 reconstruction diagnostic evidence is linked below; no long run is authorized
@@ -344,8 +348,9 @@ The inspected package pins are in
 `configs/reconstruction-runtime-constraints.txt`; the shared environment passed
 `uv pip check` across 58 installed packages. Final GPU findings failed numerical replay. Training-mode memorization succeeded;
 eval-mode readiness remains inconclusive and its acceptance criterion was unmet; the selected mode is a diagnostic candidate, not a
-numerically certified production configuration. Follow [#19](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/19)
-for required isolation before another learning-readiness claim.
+numerically certified production configuration. [#19](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/19)
+was dispositioned on 2026-11-03 in
+[ledger §5](research/2026-10-21-paper-faithful-run.md#5-issue-dispositions-2026-11-03).
 
 ### Paper-faithful run (2026-10-21)
 

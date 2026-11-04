@@ -21,6 +21,8 @@ Raw diagnostic scripts and JSON are preserved separately at
 `models/audit-20260930/` in the original checkout. The CPU target census covers
 all 28 training and 98 validation cases, before random training augmentation.
 
+> **Note on cases 48-52.** LiTS has 131 labeled cases; cases 48-52 are absent from the 28/98/126 counts because their `segmentation-N.nii` headers carry an identity affine while the volumes carry the scanner geometry, so `LITSDataset._validate_spatial_pair` rejects the pair. The 2026-10-21 manifest records them under `excluded` with reasons and SHA-256 hashes (`2026-10-21-split-manifest.json`).
+
 ## Learning rate collapse
 
 The optimizer correctly resets to 0.01 at the start of Phase B. StepLR then

@@ -190,4 +190,4 @@ these checks except this verification receipt.
 The primary integration handoff must link active repository issues for unresolved
 R1/R9 dependencies; this record alone is not an architecture-lock waiver.
 
-Open topology/framework gate: [issue #16](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/16).
+Open topology/framework gate: [issue #16](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/16) (dispositioned 2026-11-03, see [2026-10-21-paper-faithful-run.md §5](2026-10-21-paper-faithful-run.md#5-issue-dispositions-2026-11-03)).

@@ -132,6 +132,8 @@ its actual manifest before launch. The unmanaged `train()` API currently uses
 one complete loader pass per epoch, while `_run_epoch` uses a fixed minibatch
 count; their epoch units must be printed explicitly.
 
+> **Note on cases 48-52.** LiTS has 131 labeled cases; cases 48-52 are absent from the 28/98/126 counts because their `segmentation-N.nii` headers carry an identity affine while the volumes carry the scanner geometry, so `LITSDataset._validate_spatial_pair` rejects the pair. The 2026-10-21 manifest records them under `excluded` with reasons and SHA-256 hashes (`2026-10-21-split-manifest.json`).
+
 Under fresh per-phase reset and end-of-epoch StepLR, update LR for phase epoch e
 is `0.01 * 0.5**floor((e-1)/10)`. A100 last updates use `1.953125e-5`, leaving
 scheduler LR `9.765625e-6`. B173 uses `7.62939453125e-8`; B1000 last updates use
@@ -207,4 +209,4 @@ learning. Checkpoints created by these training APIs carry model/experiment
 metadata when available. These CPU checks do not establish a usable learning
 schedule, lesion retention across the cohort, or tumor overfit performance.
 
-Open schedule/transfer/optimizer gate: [issue #17](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/17).
+Open schedule/transfer/optimizer gate: [issue #17](https://github.com/NguyenJus/pytorch-dense-unet-3d/issues/17) (dispositioned 2026-11-03, see [2026-10-21-paper-faithful-run.md §5](2026-10-21-paper-faithful-run.md#5-issue-dispositions-2026-11-03)).

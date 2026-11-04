@@ -32,6 +32,7 @@ def test_ledger_covers_every_config_fidelity_key_and_label() -> None:
         "### 2.1 Architecture",
         "### 2.4 Execution",
         "## 4. Alternatives considered",
+        "## 5. Issue dispositions (2026-11-03)",
     ):
         assert heading in ledger
 
